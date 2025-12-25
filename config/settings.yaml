@@ -1,0 +1,63 @@
+# Application Settings
+app:
+  name: "AI Fraud Detection System"
+  version: "1.0.0"
+  environment: "development"
+  debug: true
+
+# API Configuration
+api:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  reload: true
+  cors_origins:
+    - "http://localhost:3000"
+    - "http://localhost:8000"
+
+# Database Configuration
+database:
+  type: "postgresql"
+  host: "localhost"
+  port: 5432
+  name: "fraud_detection"
+  pool_size: 10
+  max_overflow: 20
+
+# Kafka Configuration
+kafka:
+  bootstrap_servers:
+    - "localhost:9092"
+  topics:
+    transactions: "transactions"
+    fraud_alerts: "fraud_alerts"
+  consumer_group: "fraud_detection_group"
+  auto_offset_reset: "earliest"
+
+# Redis Configuration
+redis:
+  host: "localhost"
+  port: 6379
+  db: 0
+  decode_responses: true
+
+# Model Configuration
+model:
+  default_model: "xgboost"
+  model_path: "models/"
+  threshold: 0.5
+  retrain_interval_days: 7
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "json"
+  file: "logs/app.log"
+  max_bytes: 10485760
+  backup_count: 5
+
+# Monitoring
+monitoring:
+  enable_metrics: true
+  prometheus_port: 9090
+  alert_threshold: 0.8

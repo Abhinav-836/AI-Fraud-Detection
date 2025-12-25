@@ -1,0 +1,77 @@
+{
+    "name": "fraud-detection-dashboard",
+    "version": "1.0.0",
+    "private": true,
+    "description": "AI-powered fraud detection dashboard with real-time monitoring and analytics",
+    "author": "Your Name or Organization",
+    "license": "MIT",
+    "repository": {
+      "type": "git",
+      "url": "https://github.com/your-username/fraud-detection-dashboard.git"
+    },
+    "keywords": [
+      "fraud-detection",
+      "dashboard",
+      "react",
+      "analytics",
+      "security",
+      "ai"
+    ],
+    "homepage": "https://fraud-detection-dashboard.example.com",
+    "dependencies": {
+      "@emotion/react": "^11.14.0",
+      "@emotion/styled": "^11.14.1",
+      "@mui/icons-material": "^7.3.6",
+      "@mui/material": "^7.3.6",
+      "axios": "^1.6.2",
+      "date-fns": "^2.30.0",
+      "react": "^18.2.0",
+      "react-dom": "^18.2.0",
+      "react-icons": "^4.12.0",
+      "react-router-dom": "^6.20.0",
+      "react-scripts": "5.0.1",
+      "recharts": "^2.10.3",
+      "clsx": "^2.1.1",
+      "prop-types": "^15.8.1"
+    },
+    "scripts": {
+      "start": "react-scripts start",
+      "build": "react-scripts build",
+      "test": "react-scripts test",
+      "eject": "react-scripts eject",
+      "lint": "eslint src --ext js,jsx",
+      "lint:fix": "eslint src --ext js,jsx --fix",
+      "format": "prettier --write \"src/**/*.{js,jsx,json,css,md}\"",
+      "preview": "serve -s build",
+      "analyze": "source-map-explorer 'build/static/js/*.js'"
+    },
+    "devDependencies": {
+      "@testing-library/jest-dom": "^6.1.5",
+      "@testing-library/react": "^14.0.0",
+      "@testing-library/user-event": "^14.5.1",
+      "eslint-config-prettier": "^9.0.0",
+      "prettier": "^3.0.3",
+      "serve": "^14.2.1",
+      "source-map-explorer": "^2.5.3"
+    },
+    "eslintConfig": {
+      "extends": [
+        "react-app",
+        "react-app/jest"
+      ]
+    },
+    "browserslist": {
+      "production": [
+        ">0.2%",
+        "not dead",
+        "not op_mini all",
+        "not ie > 0",
+        "not ie_mob > 0"
+      ],
+      "development": [
+        "last 1 chrome version",
+        "last 1 firefox version",
+        "last 1 safari version"
+      ]
+    }
+  }

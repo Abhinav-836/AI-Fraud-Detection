@@ -1,0 +1,30 @@
+AI Fraud Detection System – Prototype License
+
+Copyright (c) 2025 Abhinav Ashutosh
+
+Permission is hereby granted to any individual or organization who has legally purchased this software to use, copy, and modify the source code for personal, educational, or internal prototype purposes only, subject to the following conditions:
+
+✅ Allowed
+
+Use for learning, academic projects, demos, and internal MVPs
+
+Modify the code for personal or organizational use
+
+Deploy internally for testing or demonstration
+
+❌ Not Allowed
+
+Reselling, sublicensing, or redistributing the source code (original or modified)
+
+Publishing the code publicly (GitHub, GitLab, etc.)
+
+Using the software directly in production systems without explicit permission
+
+Claiming authorship of the original source code
+
+⚠️ Disclaimer
+
+This software is provided “as is”, without warranty of any kind.
+It is a prototype / educational project, not intended for production use without proper security audits, compliance validation, and testing.
+
+The author shall not be held liable for any damages, data loss, financial loss, or misuse arising from the use of this software.

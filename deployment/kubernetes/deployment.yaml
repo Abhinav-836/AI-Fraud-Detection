@@ -1,0 +1,215 @@
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fraud-detection
+
+---
+# ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fraud-detection-config
+  namespace: fraud-detection
+data:
+  MODEL_PATH: "/app/models"
+  LOG_LEVEL: "INFO"
+  THRESHOLD: "0.5"
+
+---
+# API Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-detection-api
+  namespace: fraud-detection
+  labels:
+    app: fraud-detection-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: fraud-detection-api
+  template:
+    metadata:
+      labels:
+        app: fraud-detection-api
+    spec:
+      containers:
+      - name: api
+        image: fraud-detection-api:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: MODEL_PATH
+          valueFrom:
+            configMapKeyRef:
+              name: fraud-detection-config
+              key: MODEL_PATH
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: fraud-detection-config
+              key: LOG_LEVEL
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        volumeMounts:
+        - name: models
+          mountPath: /app/models
+      volumes:
+      - name: models
+        persistentVolumeClaim:
+          claimName: fraud-detection-models-pvc
+
+---
+# API Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: fraud-detection-api-service
+  namespace: fraud-detection
+spec:
+  type: LoadBalancer
+  selector:
+    app: fraud-detection-api
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8000
+
+---
+# Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fraud-detection-api-hpa
+  namespace: fraud-detection
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fraud-detection-api
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+# Persistent Volume Claim for Models
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fraud-detection-models-pvc
+  namespace: fraud-detection
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+
+---
+# Stream Processor Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-detection-stream-processor
+  namespace: fraud-detection
+  labels:
+    app: fraud-detection-stream-processor
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fraud-detection-stream-processor
+  template:
+    metadata:
+      labels:
+        app: fraud-detection-stream-processor
+    spec:
+      containers:
+      - name: stream-processor
+        image: fraud-detection-api:latest
+        imagePullPolicy: Always
+        command: ["python", "-m", "src.streaming.stream_processor"]
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "kafka:9092"
+        - name: MODEL_PATH
+          valueFrom:
+            configMapKeyRef:
+              name: fraud-detection-config
+              key: MODEL_PATH
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "1000m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        volumeMounts:
+        - name: models
+          mountPath: /app/models
+      volumes:
+      - name: models
+        persistentVolumeClaim:
+          claimName: fraud-detection-models-pvc
+
+---
+# Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fraud-detection-ingress
+  namespace: fraud-detection
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - fraud-detection.example.com
+    secretName: fraud-detection-tls
+  rules:
+  - host: fraud-detection.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: fraud-detection-api-service
+            port:
+              number: 80
