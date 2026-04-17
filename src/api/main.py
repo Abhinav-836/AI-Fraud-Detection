@@ -11,7 +11,7 @@ from datetime import datetime
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-# Import with proper error handling
+# Import with proper error handling FIRST
 try:
     from src.utils.logger import get_logger
     logger = get_logger(__name__)
@@ -72,16 +72,23 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware
+# CORS middleware - FIXED for frontend connection
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+        "http://localhost:5173",  # Vite default port
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
-# Try to include routers
+# Try to include routers (AFTER logger is defined)
 try:
     from src.api.routers import fraud_routes
     app.include_router(fraud_routes.router, prefix="/api/v1", tags=["fraud"])
@@ -89,6 +96,14 @@ try:
 except ImportError as e:
     logger.warning(f"Could not import fraud_routes: {e}")
     logger.info("Using basic endpoints")
+
+# Add WebSocket routes (AFTER logger is defined)
+try:
+    from src.api.routers import websocket_routes
+    app.include_router(websocket_routes.router, tags=["websocket"])
+    logger.info("WebSocket routes included successfully")
+except ImportError as e:
+    logger.warning(f"Could not import websocket_routes: {e}")
 
 
 @app.get("/")
@@ -104,7 +119,8 @@ async def root():
             "redoc": "/redoc",
             "health": "/health",
             "config": "/config",
-            "predict": "/api/v1/predict"
+            "predict": "/api/v1/predict",
+            "websocket": "ws://localhost:8000/ws/live"
         }
     }
 
@@ -147,5 +163,6 @@ if __name__ == "__main__":
     print("API Documentation: http://127.0.0.1:8000/docs")
     print("Health Check: http://127.0.0.1:8000/health")
     print("Predict Endpoint: POST http://127.0.0.1:8000/api/v1/predict")
+    print("WebSocket Endpoint: ws://127.0.0.1:8000/ws/live")
     print("=" * 60)
-    uvicorn.run("src.api.main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("src.api.main:app", host="0.0.0.0", port=8000, reload=True)

@@ -91,8 +91,8 @@ def calculate_fraud_score(transaction: Transaction) -> tuple:
         risk_factors.append("Weekend transaction")
     
     # Rule 4: High-risk merchant categories
-    high_risk_categories = ["gambling", "money_transfer", "pawn_shop"]
-    if transaction.merchant_category in high_risk_categories:
+    high_risk_categories = ["gambling", "money_transfer", "pawn_shop", "cryptocurrency"]
+    if transaction.merchant_category.lower() in high_risk_categories:
         fraud_score += 0.30
         risk_factors.append("High-risk merchant category")
     
@@ -100,6 +100,11 @@ def calculate_fraud_score(transaction: Transaction) -> tuple:
     if transaction.location_country not in ["US", "CA", "UK", "AU"]:
         fraud_score += 0.15
         risk_factors.append("International transaction")
+    
+    # Rule 6: Mobile device transactions (slightly higher risk)
+    if transaction.device_type == "mobile":
+        fraud_score += 0.05
+        risk_factors.append("Mobile device transaction")
     
     return min(fraud_score, 0.95), risk_factors
 
@@ -178,7 +183,7 @@ async def predict_fraud_batch(batch: TransactionBatch):
         
         for transaction in batch.transactions:
             prediction = await predict_fraud(transaction)
-            predictions.append(prediction)
+            predictions.append(prediction.dict())
             if prediction.is_fraud:
                 fraud_count += 1
         
@@ -220,3 +225,10 @@ async def get_model_info():
         "status": "active",
         "description": "Simple rule-based fraud detection system"
     }
+
+
+# Add a simple test endpoint for CORS verification
+@router.options("/predict")
+async def predict_options():
+    """Handle OPTIONS request for CORS preflight"""
+    return {}

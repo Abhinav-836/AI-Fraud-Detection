@@ -16,7 +16,6 @@
     <meta property="og:description" content="Real-time fraud monitoring and analytics platform" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://fraud-detection.example.com" />
-    <!-- <meta property="og:image" content="%PUBLIC_URL%/og-image.png" /> -->
     
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
@@ -27,33 +26,18 @@
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
     
-    <!-- Performance & Security Headers -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';">
-    <meta http-equiv="X-Content-Type-Options" content="nosniff" />
-    <meta http-equiv="X-Frame-Options" content="DENY" />
-    
-    <!-- Fonts (Optional - Inter is great for dashboards) -->
+    <!-- REMOVED RESTRICTIVE CSP - Allow connections to backend -->
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
     <title>Fraud Detection Dashboard | AI-Powered Security Analytics</title>
     
-    <!-- Critical CSS for initial loading -->
     <style>
-        /* Prevent FOUC (Flash of Unstyled Content) */
-        html {
-            visibility: hidden;
-            opacity: 0;
-        }
+        html { visibility: hidden; opacity: 0; }
+        html.loaded { visibility: visible; opacity: 1; transition: opacity 0.3s ease; }
         
-        html.loaded {
-            visibility: visible;
-            opacity: 1;
-            transition: opacity 0.3s ease;
-        }
-        
-        /* Loading state */
         #app-loading {
             position: fixed;
             top: 0;
@@ -89,7 +73,6 @@
             to { transform: rotate(360deg); }
         }
         
-        /* Base styles */
         body {
             margin: 0;
             padding: 0;
@@ -108,55 +91,31 @@
     </style>
 </head>
 <body>
-    <!-- Loading overlay -->
     <div id="app-loading">
         <div class="loading-spinner"></div>
         <div class="loading-text">Loading Fraud Detection Dashboard...</div>
     </div>
     
-    <!-- Main app container -->
     <noscript>
-        <div style="
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            text-align: center;
-            padding: 20px;
-            font-family: 'Inter', sans-serif;
-        ">
+        <div style="position: fixed;top: 0;left: 0;width: 100%;height: 100%;background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);color: white;display: flex;flex-direction: column;justify-content: center;align-items: center;text-align: center;padding: 20px;font-family: 'Inter', sans-serif;">
             <h1 style="font-size: 2.5rem; margin-bottom: 1rem;">JavaScript Required</h1>
             <p style="font-size: 1.2rem; max-width: 600px; line-height: 1.6;">
                 The Fraud Detection Dashboard requires JavaScript to function properly.
                 Please enable JavaScript in your browser settings and refresh the page.
-            </p>
-            <p style="margin-top: 2rem; opacity: 0.8;">
-                This is a security application that requires real-time data processing capabilities.
             </p>
         </div>
     </noscript>
     
     <div id="root"></div>
     
-    <!-- Script to handle loading state -->
     <script>
-        // Handle loading state
         document.addEventListener('DOMContentLoaded', function() {
-            // Show content when React mounts
             const root = document.getElementById('root');
             const loading = document.getElementById('app-loading');
             
             const observer = new MutationObserver(function(mutations) {
                 mutations.forEach(function(mutation) {
                     if (mutation.addedNodes.length > 0) {
-                        // Hide loading screen with fade out
                         setTimeout(function() {
                             loading.style.opacity = '0';
                             setTimeout(function() {
@@ -164,7 +123,6 @@
                                 document.documentElement.classList.add('loaded');
                             }, 500);
                         }, 500);
-                        
                         observer.disconnect();
                     }
                 });
@@ -172,14 +130,12 @@
             
             observer.observe(root, { childList: true });
             
-            // Fallback: Hide loading after 10 seconds max
             setTimeout(function() {
                 loading.style.display = 'none';
                 document.documentElement.classList.add('loaded');
             }, 10000);
         });
         
-        // Handle potential errors
         window.addEventListener('error', function() {
             document.getElementById('app-loading').style.display = 'none';
             document.documentElement.classList.add('loaded');

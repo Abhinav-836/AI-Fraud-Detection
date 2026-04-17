@@ -1,0 +1,247 @@
+.realtime-monitor {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.95));
+    backdrop-filter: blur(20px);
+    border-radius: 24px;
+    padding: 24px;
+    color: white;
+  }
+  
+  .monitor-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  
+  .monitor-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  
+  .title-icon {
+    font-size: 28px;
+    color: #6366f1;
+  }
+  
+  .monitor-title h2 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0;
+  }
+  
+  .connection-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 40px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  
+  .connection-badge.connected {
+    background: rgba(16, 185, 129, 0.2);
+    color: #34d399;
+  }
+  
+  .connection-badge.disconnected {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+  }
+  
+  .simulate-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    border: none;
+    border-radius: 40px;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+  
+  .simulate-btn.active {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+  }
+  
+  .simulate-btn:hover {
+    transform: scale(1.02);
+  }
+  
+  .monitor-stats {
+    display: flex;
+    gap: 32px;
+    padding: 16px 0;
+    margin-bottom: 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  .stat-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  
+  .stat-label {
+    font-size: 12px;
+    color: #94a3b8;
+  }
+  
+  .stat-number {
+    font-size: 28px;
+    font-weight: 700;
+  }
+  
+  .stat-number.fraud {
+    color: #f87171;
+  }
+  
+  .transactions-container {
+    margin-top: 20px;
+  }
+  
+  .transactions-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  
+  .transactions-header h3 {
+    font-size: 16px;
+    font-weight: 500;
+    margin: 0;
+  }
+  
+  .live-indicator {
+    font-size: 12px;
+    font-weight: 600;
+    animation: pulse 1s infinite;
+  }
+  
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  
+  .transactions-list {
+    max-height: 400px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .transactions-list::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .transactions-list::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+  }
+  
+  .transactions-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+  }
+  
+  .transaction-card {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 16px;
+    padding: 16px;
+    transition: all 0.3s;
+    border-left: 4px solid transparent;
+  }
+  
+  .transaction-card.fraud {
+    border-left-color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+    animation: glow 0.5s ease;
+  }
+  
+  .transaction-card.safe {
+    border-left-color: #10b981;
+  }
+  
+  @keyframes glow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+    50% { box-shadow: 0 0 20px 0 rgba(239, 68, 68, 0.6); }
+  }
+  
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  
+  .tx-id {
+    font-family: monospace;
+    font-size: 12px;
+    color: #94a3b8;
+  }
+  
+  .tx-time {
+    font-size: 11px;
+    color: #94a3b8;
+  }
+  
+  .card-body {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  
+  .amount {
+    font-size: 20px;
+    font-weight: 700;
+  }
+  
+  .risk-badge {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  
+  .probability {
+    font-size: 12px;
+    color: #94a3b8;
+  }
+  
+  .fraud-factors {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 12px;
+  }
+  
+  .fraud-factors ul {
+    margin-top: 8px;
+    padding-left: 20px;
+    color: #fca5a5;
+  }
+  
+  .fraud-factors li {
+    margin: 4px 0;
+  }
+  
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #94a3b8;
+  }
+  
+  .empty-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+  }
