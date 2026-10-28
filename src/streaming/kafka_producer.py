@@ -1,8 +1,8 @@
 from kafka import KafkaProducer
 import json
-import yaml
 from typing import Dict, Any
 from datetime import datetime
+from ..utils.config import load_settings
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -16,9 +16,10 @@ class FraudKafkaProducer:
         self.producer = None
         
     def _load_config(self, config_path: str) -> dict:
-        """Load configuration"""
-        with open(config_path, 'r') as f:
-            return yaml.safe_load(f)
+        """Load settings.yaml (project-root relative) with env overrides such as
+        KAFKA_BOOTSTRAP_SERVERS — the Kubernetes manifest sets that variable,
+        but the old code only ever read the YAML file, so pods dialled localhost."""
+        return load_settings(config_path)
     
     def connect(self):
         """Connect to Kafka"""
@@ -53,8 +54,9 @@ class FraudKafkaProducer:
         try:
             topic = self.config['kafka']['topics']['transactions']
             
-            # Add metadata
-            transaction = {**transaction, 'produced_at': datetime.now().isoformat()}
+            # Copy before adding metadata: mutating the caller's dict leaked
+            # 'produced_at' into objects the caller reused (e.g. send_batch input)
+            transaction = {**transaction, 'produced_at': datetime.now().astimezone().isoformat()}
             
             # Send to Kafka
             future = self.producer.send(
@@ -93,7 +95,6 @@ class FraudKafkaProducer:
         try:
             topic = self.config['kafka']['topics']['fraud_alerts']
             
-            # Add metadata
             alert = {**alert, 'alert_generated_at': datetime.now().astimezone().isoformat()}
             
             # Send to Kafka
