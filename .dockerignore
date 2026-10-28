@@ -1,0 +1,27 @@
+.git
+.github
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.coverage
+htmlcov
+venv
+.venv
+env
+
+# the dashboard is built inside the image; never copy local build output
+frontend/node_modules
+frontend/dist
+notebooks
+deployment
+desktop
+build
+dist
+
+data
+models
+logs
+reports
+
+config/credentials.yaml
+*.env

@@ -1,159 +1,59 @@
-import pandas as pd
-import numpy as np
-from datetime import datetime
-from ..models.train import FraudModelTrainer
-from ..preprocessing.transform import DataTransformer
-from ..features.feature_engineering import FeatureEngineer
+from typing import Optional
+
+from ..api.services.fraud_service import FraudDetectionService
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
 class RealTimeDetector:
-    """Real-time fraud detection for streaming transactions"""
-    
-    def __init__(self, model_path: str = "models", threshold: float = 0.5):
-        self.threshold = threshold
-        self.model = None
-        self.transformer = None
-        self.engineer = None
-        self.load_components(model_path)
-        
-        # Statistics tracking
-        self.stats = {
-            'total_processed': 0,
-            'fraud_detected': 0,
-            'processing_times': []
-        }
-    
-    def load_components(self, model_path: str):
-        """Load model and preprocessing components"""
-        logger.info("Loading detection components")
-        
-        try:
-            # Load model
-            self.model = FraudModelTrainer()
-            self.model.load_model('xgboost', model_path)
-            
-            # Load transformer
-            self.transformer = DataTransformer()
-            self.transformer.load_transformers(f"{model_path}/transformers")
-            
-            # Initialize feature engineer
-            self.engineer = FeatureEngineer()
-            
-            logger.info("Components loaded successfully")
-            
-        except Exception as e:
-            logger.error(f"Error loading components: {str(e)}")
-            raise
-    
+    """
+    Real-time detection for the Kafka stream processor. A thin wrapper over
+    FraudDetectionService, so streaming, REST and WebSocket share the same
+    card history, model, decision policy and database.
+    """
+
+    def __init__(self, model_path: Optional[str] = None, require_model: bool = True,
+                 service: Optional[FraudDetectionService] = None):
+        self.service = service or FraudDetectionService()
+        loaded = self.service.initialize(model_path)
+        if require_model and not loaded:
+            raise FileNotFoundError(
+                "No trained model found. Run `python -m src.pipelines.training_pipeline` first "
+                "or pass require_model=False to use rule-based scoring."
+            )
+        self.stats = {'total_processed': 0, 'flagged': 0, 'declined': 0, 'latency_sum_ms': 0.0}
+
     def detect(self, transaction: dict) -> dict:
-        """
-        Detect fraud in a single transaction
-        
-        Args:
-            transaction: Transaction data dictionary
-            
-        Returns:
-            Detection result with fraud score and metadata
-        """
-        start_time = datetime.now()
-        
+        """Score one transaction. Errors are returned, not raised, so a bad message can't kill the consumer."""
         try:
-            # Convert to DataFrame
-            df = pd.DataFrame([transaction])
-            
-            # Engineer features
-            df = self.engineer.create_features(df)
-            
-            # Transform
-            X = self.transformer.transform(df)
-            
-            # Predict
-            fraud_prob = self.model.get_predictions('xgboost', X)[0]
-            is_fraud = fraud_prob > self.threshold
-            
-            # Determine risk level
-            if fraud_prob < 0.3:
-                risk_level = "low"
-            elif fraud_prob < 0.7:
-                risk_level = "medium"
-            else:
-                risk_level = "high"
-            
-            # Calculate processing time
-            processing_time = (datetime.now() - start_time).total_seconds() * 1000
-            
-            # Update statistics
-            self.stats['total_processed'] += 1
-            if is_fraud:
-                self.stats['fraud_detected'] += 1
-            self.stats['processing_times'].append(processing_time)
-            
-            result = {
-                'transaction_id': transaction.get('transaction_id'),
-                'is_fraud': bool(is_fraud),
-                'fraud_probability': float(fraud_prob),
-                'risk_level': risk_level,
-                'processing_time_ms': processing_time,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            if is_fraud:
-                logger.warning(
-                    f"FRAUD DETECTED - ID: {transaction.get('transaction_id')}, "
-                    f"Probability: {fraud_prob:.4f}"
-                )
-            
-            return result
-            
+            result = self.service.predict(transaction, source="stream")
         except Exception as e:
-            logger.error(f"Error detecting fraud: {str(e)}")
-            return {
-                'transaction_id': transaction.get('transaction_id'),
-                'error': str(e),
-                'timestamp': datetime.now().isoformat()
-            }
-    
+            logger.error(f"Error scoring {transaction.get('transaction_id')}: {e}")
+            return {'transaction_id': transaction.get('transaction_id'), 'error': str(e)}
+
+        self.stats['total_processed'] += 1
+        self.stats['flagged'] += int(result['is_fraud'])
+        self.stats['declined'] += int(result['decision'] == 'decline')
+        self.stats['latency_sum_ms'] += result['processing_time_ms']
+        if result['is_fraud']:
+            logger.warning(f"{result['decision'].upper()} {result['transaction_id']} "
+                           f"p={result['fraud_probability']:.3f}: {'; '.join(result['factors'][:2])}")
+        return result
+
     def detect_batch(self, transactions: list) -> list:
-        """
-        Detect fraud in a batch of transactions
-        
-        Args:
-            transactions: List of transaction dictionaries
-            
-        Returns:
-            List of detection results
-        """
-        logger.info(f"Processing batch of {len(transactions)} transactions")
-        
-        results = []
-        for transaction in transactions:
-            result = self.detect(transaction)
-            results.append(result)
-        
-        return results
-    
+        return [self.detect(tx) for tx in transactions]
+
     def get_statistics(self) -> dict:
-        """Get detection statistics"""
-        stats = self.stats.copy()
-        
-        if stats['processing_times']:
-            stats['avg_processing_time_ms'] = np.mean(stats['processing_times'])
-            stats['max_processing_time_ms'] = np.max(stats['processing_times'])
-            stats['min_processing_time_ms'] = np.min(stats['processing_times'])
-        
-        if stats['total_processed'] > 0:
-            stats['fraud_rate'] = stats['fraud_detected'] / stats['total_processed']
-        
-        return stats
-    
-    def reset_statistics(self):
-        """Reset detection statistics"""
-        self.stats = {
-            'total_processed': 0,
-            'fraud_detected': 0,
-            'processing_times': []
+        n = self.stats['total_processed']
+        return {
+            'total_processed': n,
+            'fraud_detected': self.stats['flagged'],
+            'declined': self.stats['declined'],
+            'fraud_rate': self.stats['flagged'] / n if n else 0.0,
+            'avg_processing_time_ms': self.stats['latency_sum_ms'] / n if n else 0.0,
+            'model_type': self.service.model_type,
         }
-        logger.info("Statistics reset")
+
+    def reset_statistics(self):
+        self.stats = {'total_processed': 0, 'flagged': 0, 'declined': 0, 'latency_sum_ms': 0.0}

@@ -1,0 +1,92 @@
+# Full stack.
+#
+#   docker compose up --build                       API + dashboard + Redis
+#   docker compose --profile streaming up --build   ... + Kafka, a traffic
+#                                                    feeder and the stream processor
+#
+# Dashboard: http://localhost:8000
+#
+# Redis holds per-card history (velocity, usual amount, known countries), so
+# the API and the stream processor see the same card behaviour. The SQLite
+# database on the shared "fraud-data" volume holds every scored transaction,
+# so stream-scored transactions show up on the dashboard too.
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: deployment/docker/Dockerfile.api
+  image: fraud-detection:latest
+  environment: &app-env
+    HISTORY_BACKEND: redis
+    REDIS_URL: redis://redis:6379/0
+    KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    # FRAUD_API_KEY: change-me   # uncomment to require X-API-Key on the API
+  volumes:
+    - fraud-data:/data
+  restart: unless-stopped
+
+services:
+  api:
+    <<: *app
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # ---- streaming profile ---------------------------------------------------
+  kafka:
+    image: apache/kafka:3.9.0
+    profiles: ["streaming"]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    restart: unless-stopped
+
+  stream-processor:
+    <<: *app
+    profiles: ["streaming"]
+    command: ["python", "-m", "src.streaming.stream_processor"]
+    healthcheck:
+      disable: true
+    depends_on:
+      kafka:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  traffic-simulator:
+    <<: *app
+    profiles: ["streaming"]
+    command: ["python", "-m", "src.streaming.simulate_to_kafka", "--rate", "1"]
+    healthcheck:
+      disable: true
+    depends_on:
+      kafka:
+        condition: service_started
+
+volumes:
+  fraud-data:
+  redis-data:

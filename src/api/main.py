@@ -1,168 +1,105 @@
+import os
+from contextlib import asynccontextmanager
+from datetime import datetime
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-import yaml
-from pathlib import Path
-import sys
-import os
-from datetime import datetime
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-# Add the project root to Python path
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
+from ..utils.config import load_settings, resolve_path
+from ..utils.logger import get_logger
+from .routers import fraud_routes, websocket_routes
+from .security import configured_key
+from .services.fraud_service import fraud_service
 
-# Import with proper error handling FIRST
-try:
-    from src.utils.logger import get_logger
-    logger = get_logger(__name__)
-except ImportError as e:
-    import logging
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
-    logger.warning(f"Could not import custom logger: {e}")
+logger = get_logger(__name__)
 
-# Global state
-app_state = {}
+settings = load_settings()
+APP_NAME = settings.get('app', {}).get('name', 'AI Fraud Detection System')
+APP_VERSION = settings.get('app', {}).get('version', '2.0.0')
+
+DEFAULT_ORIGINS = [
+    "http://localhost:3000", "http://127.0.0.1:3000",
+    "http://localhost:5173", "http://127.0.0.1:5173",
+]
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup and shutdown events"""
-    # Startup
     logger.info("Starting Fraud Detection API")
-    
-    # Load configuration
-    try:
-        config_path = project_root / "config" / "settings.yaml"
-        if config_path.exists():
-            with open(config_path) as f:
-                config = yaml.safe_load(f)
-            app_state['config'] = config
-            logger.info("Configuration loaded successfully")
-        else:
-            logger.warning("Configuration file not found, using defaults")
-            app_state['config'] = {
-                'app': {
-                    'name': 'Fraud Detection API',
-                    'version': '1.0.0',
-                    'environment': 'development'
-                }
-            }
-    except Exception as e:
-        logger.error(f"Failed to load config: {str(e)}")
-        app_state['config'] = {}
-    
-    # Initialize model (optional - will use rule-based if not available)
-    app_state['model'] = None
-    app_state['transformer'] = None
-    
-    logger.info("API initialized successfully")
-    
+    fraud_service.initialize()
+    logger.info(f"Scoring with: {fraud_service.model_type}; API key {'required' if configured_key() else 'not set'}")
     yield
-    
-    # Shutdown
     logger.info("Shutting down Fraud Detection API")
 
 
-# Create FastAPI app
 app = FastAPI(
-    title="AI Fraud Detection API",
-    description="Real-time fraud detection API using machine learning",
-    version="1.0.0",
-    lifespan=lifespan
+    title=APP_NAME,
+    description="Real-time fraud detection: card-history features, calibrated ML model, "
+                "approve/review/decline decisions with explanations, analyst feedback loop.",
+    version=APP_VERSION,
+    lifespan=lifespan,
 )
 
-# CORS middleware - FIXED for frontend connection
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-        "http://localhost:5173",  # Vite default port
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=settings.get('api', {}).get('cors_origins') or DEFAULT_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "OPTIONS"],
     allow_headers=["*"],
 )
 
-# Try to include routers (AFTER logger is defined)
-try:
-    from src.api.routers import fraud_routes
-    app.include_router(fraud_routes.router, prefix="/api/v1", tags=["fraud"])
-    logger.info("Fraud routes included successfully")
-except ImportError as e:
-    logger.warning(f"Could not import fraud_routes: {e}")
-    logger.info("Using basic endpoints")
-
-# Add WebSocket routes (AFTER logger is defined)
-try:
-    from src.api.routers import websocket_routes
-    app.include_router(websocket_routes.router, tags=["websocket"])
-    logger.info("WebSocket routes included successfully")
-except ImportError as e:
-    logger.warning(f"Could not import websocket_routes: {e}")
+app.include_router(fraud_routes.router, prefix="/api/v1", tags=["fraud"])
+app.include_router(websocket_routes.router, tags=["websocket"])
 
 
-@app.get("/")
-async def root():
-    """Root endpoint"""
+@app.get("/api")
+def api_root():
     return {
-        "message": "Fraud Detection API",
-        "version": "1.0.0",
+        "message": APP_NAME,
+        "version": APP_VERSION,
         "status": "running",
-        "timestamp": datetime.now().isoformat(),
-        "endpoints": {
-            "docs": "/docs",
-            "redoc": "/redoc",
-            "health": "/health",
-            "config": "/config",
-            "predict": "/api/v1/predict",
-            "websocket": "ws://localhost:8000/ws/live"
-        }
+        "timestamp": datetime.now().astimezone().isoformat(),
+        "docs": "/docs",
+        "auth": "X-API-Key header required" if configured_key() else "open (FRAUD_API_KEY not set)",
     }
 
 
 @app.get("/health")
-async def health_check():
-    """Health check endpoint"""
+def health_check():
     return {
         "status": "healthy",
-        "model_loaded": app_state.get('model') is not None,
-        "config_loaded": 'config' in app_state,
-        "timestamp": datetime.now().isoformat()
+        "model_loaded": fraud_service.model_loaded,
+        "model_type": fraud_service.model_type,
+        "timestamp": datetime.now().astimezone().isoformat(),
     }
 
 
-@app.get("/config")
-async def get_config():
-    """Get API configuration (non-sensitive)"""
-    config = app_state.get('config', {})
-    
-    return {
-        "app_name": config.get('app', {}).get('name', 'Fraud Detection API'),
-        "version": config.get('app', {}).get('version', '1.0.0'),
-        "environment": config.get('app', {}).get('environment', 'development'),
-        "timestamp": datetime.now().isoformat()
-    }
+# ---------------------------------------------------------------- frontend
+# When the React build exists (frontend/dist, or FRONTEND_DIST), the API also
+# serves the dashboard, so one process (Docker image, desktop app) is enough.
+FRONTEND_DIST = Path(os.getenv("FRONTEND_DIST") or resolve_path("frontend/dist"))
+
+if (FRONTEND_DIST / "index.html").exists():
+    if (FRONTEND_DIST / "assets").is_dir():
+        app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def serve_frontend(full_path: str):
+        if full_path.startswith(("api/", "ws/", "docs", "redoc", "openapi.json")):
+            raise HTTPException(status_code=404)
+        candidate = (FRONTEND_DIST / full_path).resolve()
+        if full_path and candidate.is_file() and FRONTEND_DIST.resolve() in candidate.parents:
+            return FileResponse(candidate)
+        return FileResponse(FRONTEND_DIST / "index.html")  # client-side routes
+else:
+    @app.get("/", include_in_schema=False)
+    def root():
+        return api_root()
 
 
-def get_app():
-    """Get FastAPI app instance"""
-    return app
-
-
-# For direct execution
 if __name__ == "__main__":
     import uvicorn
-    print("=" * 60)
-    print("Starting AI Fraud Detection API")
-    print("=" * 60)
-    print("API Documentation: http://127.0.0.1:8000/docs")
-    print("Health Check: http://127.0.0.1:8000/health")
-    print("Predict Endpoint: POST http://127.0.0.1:8000/api/v1/predict")
-    print("WebSocket Endpoint: ws://127.0.0.1:8000/ws/live")
-    print("=" * 60)
     uvicorn.run("src.api.main:app", host="0.0.0.0", port=8000, reload=True)

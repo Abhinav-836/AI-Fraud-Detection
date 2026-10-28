@@ -1,177 +1,168 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from typing import Dict, Set
-import json
+"""
+Real-time channel.
+
+Client -> server messages:
+  {transaction JSON}                         score one transaction
+  {"action": "start_simulation", "interval": 1.0}
+                                             stream realistic simulated traffic
+  {"action": "stop_simulation"}
+
+Server -> client messages:
+  {"type": "connection", ...}
+  {"type": "transaction_processed" | "fraud_alert", "transaction", "prediction", "truth"?}
+  {"type": "simulation", "state": "started" | "stopped"}
+  {"type": "error", ...}
+
+The sender gets every result; other dashboards receive only fraud alerts.
+"""
 import asyncio
+import json
 from datetime import datetime
-import sys
-from pathlib import Path
+from typing import Awaitable, Callable, Dict, Optional
 
-project_root = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
+from fastapi.concurrency import run_in_threadpool
+from pydantic import ValidationError
 
-try:
-    from src.detection.real_time_detector import RealTimeDetector
-    from src.utils.logger import get_logger
-    logger = get_logger(__name__)
-except ImportError:
-    import logging
-    logger = logging.getLogger(__name__)
-    # Create a simple RealTimeDetector mock if not available
-    class RealTimeDetector:
-        def __init__(self, *args, **kwargs):
-            pass
-        def detect(self, transaction):
-            return rule_based_detection(transaction)
+from ...features.feature_engineering import normalize_transaction
+from ...ingestion.simulator import LiveSimulator
+from ...utils.logger import get_logger
+from ..security import websocket_authorized
+from ..services.fraud_service import fraud_service
+from .fraud_routes import Transaction
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
-# Store active WebSocket connections
+
+def _now() -> str:
+    return datetime.now().astimezone().isoformat()
+
+
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: Set[WebSocket] = set()
-        self.transaction_history = []
+        # websocket -> its serialised send function
+        self.active_connections: Dict[WebSocket, Callable[[dict], Awaitable[None]]] = {}
+        self.messages_processed = 0
 
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.add(websocket)
-        logger.info(f"WebSocket connected. Total connections: {len(self.active_connections)}")
+    def register(self, websocket: WebSocket, send: Callable[[dict], Awaitable[None]]):
+        self.active_connections[websocket] = send
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.discard(websocket)
-        logger.info(f"WebSocket disconnected. Total connections: {len(self.active_connections)}")
+        self.active_connections.pop(websocket, None)
 
-    async def broadcast(self, message: dict):
-        for connection in self.active_connections.copy():
+    async def broadcast(self, message: dict, exclude: WebSocket = None):
+        for connection, send in list(self.active_connections.items()):
+            if connection is exclude:
+                continue
             try:
-                await connection.send_json(message)
-            except Exception as e:
-                logger.error(f"Failed to broadcast: {e}")
-                self.active_connections.discard(connection)
+                await send(message)
+            except Exception:
+                self.disconnect(connection)
 
-    async def send_personal(self, message: dict, websocket: WebSocket):
-        await websocket.send_json(message)
 
 manager = ConnectionManager()
 
-# Initialize real-time detector
-try:
-    realtime_detector = RealTimeDetector(model_path="models", threshold=0.5)
-    logger.info("Real-time detector initialized")
-except Exception as e:
-    logger.warning(f"Real-time detector not available: {e}, using rule-based fallback")
-    realtime_detector = None
 
-
-def rule_based_detection(transaction: dict) -> dict:
-    """Fallback rule-based detection"""
-    fraud_score = 0.0
-    risk_factors = []
-    
-    amount = transaction.get("amount", 0)
-    if amount > 1000:
-        fraud_score += 0.25
-        risk_factors.append("High amount")
-    if amount > 5000:
-        fraud_score += 0.25
-        risk_factors.append("Very high amount")
-    
-    hour = transaction.get("hour_of_day", 12)
-    if hour < 6 or hour > 22:
-        fraud_score += 0.15
-        risk_factors.append("Unusual hour")
-    
-    merchant = transaction.get("merchant_category", "").lower()
-    high_risk_merchants = ["gambling", "money_transfer", "cryptocurrency", "pawn_shop"]
-    if merchant in high_risk_merchants:
-        fraud_score += 0.30
-        risk_factors.append("High-risk merchant")
-    
-    location = transaction.get("location_country", "US")
-    if location not in ["US", "CA", "UK", "AU"]:
-        fraud_score += 0.15
-        risk_factors.append("International transaction")
-    
-    fraud_probability = min(fraud_score, 0.95)
-    is_fraud = fraud_probability > 0.5
-    
-    return {
-        "is_fraud": is_fraud,
-        "fraud_probability": fraud_probability,
-        "risk_level": "high" if fraud_probability > 0.7 else "medium" if fraud_probability > 0.3 else "low",
-        "factors": risk_factors or ["No risk factors detected"],
-        "processing_time_ms": 5.0,
-        "timestamp": datetime.now().isoformat()
+async def _score_and_send(websocket: WebSocket, send, tx: dict, source: str, truth: Optional[dict] = None):
+    result = await run_in_threadpool(fraud_service.predict, tx, source, truth)
+    manager.messages_processed += 1
+    message = {
+        "type": "fraud_alert" if result["is_fraud"] else "transaction_processed",
+        "transaction": tx,
+        "prediction": result,
+        "truth": truth,
+        "timestamp": _now(),
     }
+    await send(message)
+    if result["is_fraud"]:
+        await manager.broadcast(message, exclude=websocket)
+
+
+async def _run_simulation(websocket: WebSocket, send, interval: float):
+    sim = LiveSimulator()
+
+    def warmup():
+        # A week of normal history so simulated cards behave like real ones
+        for tx in sim.warmup_history(days=7):
+            n = normalize_transaction(tx)
+            fraud_service.history.score_and_update(n["card_id"], n["epoch"], n["amount"], n["location_country"],
+                                                   n["merchant_category"], n["device_type"])
+
+    await run_in_threadpool(warmup)
+    await send({"type": "simulation", "state": "started", "timestamp": _now()})
+    while True:
+        tx, truth = LiveSimulator.split_truth(sim.next_transaction())
+        await _score_and_send(websocket, send, tx, "simulation", truth)
+        # Fraud episodes arrive in quick bursts, like the real thing
+        await asyncio.sleep(interval / 3 if sim.queue else interval)
 
 
 @router.websocket("/ws/live")
 async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for real-time fraud detection"""
-    await manager.connect(websocket)
-    
+    if not websocket_authorized(websocket):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    await websocket.accept()
+    simulation: Optional[asyncio.Task] = None
+    # The simulation task, this loop and broadcasts from other clients all
+    # write to the socket; serialise the sends
+    send_lock = asyncio.Lock()
+
+    async def send(message: dict):
+        async with send_lock:
+            await websocket.send_json(message)
+
+    manager.register(websocket, send)
+
     try:
-        # Send initial connection confirmation
-        await manager.send_personal({
-            "type": "connection",
-            "status": "connected",
-            "message": "Connected to real-time fraud detection",
-            "timestamp": datetime.now().isoformat()
-        }, websocket)
-        
+        await send({"type": "connection", "status": "connected",
+                                   "model_type": fraud_service.model_type, "timestamp": _now()})
         while True:
-            # Receive transaction from WebSocket
-            data = await websocket.receive_text()
-            transaction = json.loads(data)
-            
-            logger.info(f"Received real-time transaction: {transaction.get('transaction_id')}")
-            
-            # Process with real-time detector or fallback
-            if realtime_detector:
-                try:
-                    result = realtime_detector.detect(transaction)
-                except Exception as e:
-                    logger.error(f"Real-time detector error: {e}, using fallback")
-                    result = rule_based_detection(transaction)
-            else:
-                result = rule_based_detection(transaction)
-            
-            # Ensure result has all required fields
-            if 'processing_time_ms' not in result:
-                result['processing_time_ms'] = 5.0
-            if 'timestamp' not in result:
-                result['timestamp'] = datetime.now().isoformat()
-            
-            # Add to history
-            manager.transaction_history.append({
-                "transaction": transaction,
-                "result": result,
-                "timestamp": datetime.now().isoformat()
-            })
-            
-            # Keep only last 1000 transactions
-            if len(manager.transaction_history) > 1000:
-                manager.transaction_history.pop(0)
-            
-            # Broadcast result to all connected clients
-            await manager.broadcast({
-                "type": "fraud_alert" if result.get("is_fraud") else "transaction_processed",
-                "transaction": transaction,
-                "prediction": result,
-                "timestamp": datetime.now().isoformat()
-            })
-            
+            raw = await websocket.receive_text()
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError as e:
+                await send({"type": "error", "message": "Invalid JSON", "details": str(e), "timestamp": _now()})
+                continue
+
+            action = data.get("action") if isinstance(data, dict) else None
+            if action == "start_simulation":
+                if simulation is None or simulation.done():
+                    interval = min(max(float(data.get("interval", 1.0)), 0.2), 5.0)
+                    simulation = asyncio.create_task(_run_simulation(websocket, send, interval))
+                continue
+            if action == "stop_simulation":
+                if simulation:
+                    simulation.cancel()
+                    simulation = None
+                await send({"type": "simulation", "state": "stopped", "timestamp": _now()})
+                continue
+
+            try:
+                tx = Transaction.model_validate(data).model_dump(mode="json")
+            except ValidationError as e:
+                await send({"type": "error", "message": "Invalid transaction",
+                                           "details": e.errors(include_url=False), "timestamp": _now()})
+                continue
+            await _score_and_send(websocket, send, tx, "websocket")
+
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        pass
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
+        logger.exception(f"WebSocket error: {e}")
+    finally:
+        if simulation:
+            simulation.cancel()
         manager.disconnect(websocket)
 
 
 @router.get("/ws/stats")
-async def get_websocket_stats():
-    """Get WebSocket connection statistics"""
+def get_websocket_stats():
     return {
         "active_connections": len(manager.active_connections),
-        "total_transactions_processed": len(manager.transaction_history),
-        "timestamp": datetime.now().isoformat()
+        "total_transactions_processed": manager.messages_processed,
+        "timestamp": _now(),
     }

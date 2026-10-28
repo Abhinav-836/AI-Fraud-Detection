@@ -1,112 +1,113 @@
-import React, { useState, useEffect } from 'react';
-import { FaShieldAlt, FaChartLine, FaExclamationTriangle, FaCheckCircle, FaDatabase } from 'react-icons/fa';
+import React, { useCallback, useEffect, useState } from 'react';
+import { FaShieldAlt, FaCheckCircle, FaSearch, FaBan, FaDatabase } from 'react-icons/fa';
 import AlertPanel from './AlertPanel';
 import FraudChart from './FraudChart';
 import TransactionTable from './TransactionTable';
 import TransactionForm from './TransactionForm';
 import RealTimeMonitor from './RealTimeMonitor';
 import fraudAPI from '../services/fraudApi';
+import { useSettings } from '../context/SettingsContext';
+
+const POLL_MS = 5000;
+
+const EMPTY_STATS = { total_predictions: 0, approved: 0, in_review: 0, declined: 0, model_type: null };
 
 const Dashboard = () => {
-  const [stats, setStats] = useState({
-    totalTransactions: 12457,
-    flaggedTransactions: 342,
-    fraudRate: 2.7,
-    resolvedCases: 289,
-    accuracy: 98.5,
-  });
+  const { t, formatNumber, formatPercent, formatTime, modelName } = useSettings();
+  const [stats, setStats] = useState(EMPTY_STATS);
+  const [recent, setRecent] = useState([]);
+  const [queue, setQueue] = useState([]);
   const [apiStatus, setApiStatus] = useState('checking');
-  const [recentPredictions, setRecentPredictions] = useState([]);
-  const [lastUpdate, setLastUpdate] = useState(new Date());
+  const [lastUpdate, setLastUpdate] = useState(null);
 
-  useEffect(() => {
-    checkApiStatus();
-    fetchStats();
-    const interval = setInterval(fetchStats, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const checkApiStatus = async () => {
+  const refresh = useCallback(async () => {
     try {
-      const health = await fraudAPI.checkHealth();
-      setApiStatus(health.status === 'healthy' || health.status === 'running' ? 'connected' : 'disconnected');
-    } catch (error) {
+      const [apiStats, recentPredictions, reviewQueue] = await Promise.all([
+        fraudAPI.getStats(),
+        fraudAPI.getRecent({ limit: 200 }),
+        fraudAPI.getRecent({ limit: 20, flaggedOnly: true, unlabeledOnly: true }),
+      ]);
+      setStats(apiStats);
+      setRecent(recentPredictions);
+      setQueue(reviewQueue);
+      setApiStatus('connected');
+      setLastUpdate(new Date());
+    } catch {
       setApiStatus('disconnected');
     }
-  };
+  }, []);
 
-  const fetchStats = async () => {
-    try {
-      const apiStats = await fraudAPI.getStats();
-      setStats(prev => ({ ...prev, ...apiStats }));
-      setLastUpdate(new Date());
-    } catch (error) {
-      console.error('Failed to fetch stats:', error);
-    }
-  };
+  useEffect(() => {
+    refresh();
+    const interval = setInterval(refresh, POLL_MS);
+    return () => clearInterval(interval);
+  }, [refresh]);
 
-  const handlePredictionComplete = (prediction) => {
-    setRecentPredictions(prev => [prediction, ...prev].slice(0, 10));
-    fetchStats();
-  };
+  const total = stats.total_predictions || 0;
+  const share = (n) => (total ? formatPercent(n / total) : '');
 
   const statCards = [
-    { title: 'Total Transactions', value: stats.totalTransactions.toLocaleString(), icon: <FaDatabase />, color: 'primary', change: '+12.5%', trend: 'up' },
-    { title: 'Fraud Detected', value: stats.flaggedTransactions.toLocaleString(), icon: <FaExclamationTriangle />, color: 'danger', change: '-5.2%', trend: 'down' },
-    { title: 'Fraud Rate', value: `${stats.fraudRate}%`, icon: <FaChartLine />, color: 'warning', change: '-0.3%', trend: 'down' },
-    { title: 'Detection Accuracy', value: `${stats.accuracy}%`, icon: <FaShieldAlt />, color: 'success', change: '+1.8%', trend: 'up' },
-    { title: 'Resolved Cases', value: stats.resolvedCases.toLocaleString(), icon: <FaCheckCircle />, color: 'success', change: '+8.3%', trend: 'up' },
+    { key: 'scored', title: t('dash.scored'), value: formatNumber(total), icon: <FaDatabase />, color: 'primary' },
+    { key: 'approved', title: t('dash.approved'), value: formatNumber(stats.approved), sub: share(stats.approved), icon: <FaCheckCircle />, color: 'success' },
+    { key: 'review', title: t('dash.review'), value: formatNumber(stats.in_review), sub: share(stats.in_review), icon: <FaSearch />, color: 'warning' },
+    { key: 'declined', title: t('dash.declined'), value: formatNumber(stats.declined), sub: share(stats.declined), icon: <FaBan />, color: 'danger' },
+    { key: 'model', title: t('dash.model'), value: stats.model_type ? modelName(stats.model_type) : '—', icon: <FaShieldAlt />, color: 'info' },
   ];
+
+  const statusLabel = apiStatus === 'checking'
+    ? t('dash.apiChecking')
+    : apiStatus === 'connected' ? t('dash.apiConnected') : t('dash.apiDisconnected');
 
   return (
     <div className="dashboard">
       <div className="dashboard-header">
         <div>
-          <h1 className="dashboard-title">Fraud Detection Dashboard</h1>
-          <p className="dashboard-subtitle">Real-time monitoring and analytics for transaction security</p>
+          <h1 className="dashboard-title">{t('dash.title')}</h1>
+          <p className="dashboard-subtitle">{t('dash.subtitle')}</p>
         </div>
         <div className="api-status-badge">
           <span className={`status-dot ${apiStatus === 'connected' ? 'connected' : 'disconnected'}`}></span>
-          {apiStatus === 'connected' ? 'API Connected' : 'API Disconnected'}
+          {statusLabel}
         </div>
       </div>
 
       <div className="stats-grid">
-        {statCards.map((stat, index) => (
-          <div key={index} className={`stat-card stat-card-${stat.color}`}>
+        {statCards.map((stat) => (
+          <div key={stat.key} className={`stat-card stat-card-${stat.color}`}>
             <div className="stat-icon">{stat.icon}</div>
             <div className="stat-info">
               <h3>{stat.title}</h3>
               <p className="stat-number">{stat.value}</p>
-              <span className={`stat-change ${stat.trend}`}>{stat.change}</span>
+              {stat.sub && <p className="stat-sub">{stat.sub}</p>}
             </div>
           </div>
         ))}
       </div>
 
       <div className="dashboard-section">
-        <RealTimeMonitor />
+        <RealTimeMonitor onTransactionScored={refresh} />
       </div>
 
       <div className="dashboard-row">
         <div className="dashboard-col">
-          <TransactionForm onPredictionComplete={handlePredictionComplete} />
+          <TransactionForm onPredictionComplete={refresh} />
         </div>
         <div className="dashboard-col">
-          <FraudChart />
+          <AlertPanel queue={queue} onLabeled={refresh} />
         </div>
       </div>
 
-      <div className="dashboard-row">
-        <div className="dashboard-col">
-          <AlertPanel />
-        </div>
-        <div className="dashboard-col full-width">
-          <TransactionTable predictions={recentPredictions} />
-        </div>
+      <div className="dashboard-section">
+        <FraudChart predictions={recent} />
       </div>
 
-      <div className="last-update">Last updated: {lastUpdate.toLocaleTimeString()}</div>
+      <div className="dashboard-section">
+        <TransactionTable predictions={recent} />
+      </div>
+
+      <div className="last-update">
+        {lastUpdate ? t('dash.lastUpdated', { time: formatTime(lastUpdate) }) : t('dash.waiting')}
+      </div>
     </div>
   );
 };

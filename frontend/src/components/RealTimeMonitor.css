@@ -1,3 +1,6 @@
+/* Selectors shared with other components (.card-header, .risk-badge, .stat-number, ...)
+   are scoped to .realtime-monitor / renamed. CRA CSS is global, so the old
+   unscoped rules restyled every card header on the page. */
 .realtime-monitor {
     background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.95));
     backdrop-filter: blur(20px);
@@ -70,8 +73,22 @@
     background: linear-gradient(135deg, #ef4444, #dc2626);
   }
   
-  .simulate-btn:hover {
+  .simulate-btn:hover:not(:disabled) {
     transform: scale(1.02);
+  }
+
+  .simulate-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .monitor-error {
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: rgba(239, 68, 68, 0.15);
+    color: #fca5a5;
+    font-size: 12px;
   }
   
   .monitor-stats {
@@ -83,23 +100,23 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   }
   
-  .stat-item {
+  .realtime-monitor .stat-item {
     display: flex;
     flex-direction: column;
     gap: 4px;
   }
   
-  .stat-label {
+  .realtime-monitor .stat-label {
     font-size: 12px;
     color: #94a3b8;
   }
   
-  .stat-number {
+  .realtime-monitor .stat-number {
     font-size: 28px;
     font-weight: 700;
   }
   
-  .stat-number.fraud {
+  .realtime-monitor .stat-number.fraud {
     color: #f87171;
   }
   
@@ -161,14 +178,37 @@
     border-left: 4px solid transparent;
   }
   
-  .transaction-card.fraud {
+  .transaction-card.decision-decline {
     border-left-color: #ef4444;
     background: rgba(239, 68, 68, 0.1);
     animation: glow 0.5s ease;
   }
-  
-  .transaction-card.safe {
+
+  .transaction-card.decision-review {
+    border-left-color: #f59e0b;
+    background: rgba(245, 158, 11, 0.08);
+  }
+
+  .transaction-card.decision-approve {
     border-left-color: #10b981;
+  }
+
+  .truth-tag {
+    margin-top: 10px;
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .truth-tag.caught { background: rgba(16, 185, 129, 0.18); color: #6ee7b7; }
+  .truth-tag.missed { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+  .truth-tag.false-alarm { background: rgba(245, 158, 11, 0.18); color: #fcd34d; }
+
+  .fraud-factors.driver-list {
+    color: #fca5a5;
+    font-size: 12px;
   }
   
   @keyframes glow {
@@ -176,7 +216,7 @@
     50% { box-shadow: 0 0 20px 0 rgba(239, 68, 68, 0.6); }
   }
   
-  .card-header {
+  .tx-header {
     display: flex;
     justify-content: space-between;
     margin-bottom: 12px;
@@ -193,26 +233,26 @@
     color: #94a3b8;
   }
   
-  .card-body {
+  .tx-body {
     display: flex;
     align-items: center;
     gap: 16px;
     flex-wrap: wrap;
   }
   
-  .amount {
+  .realtime-monitor .amount {
     font-size: 20px;
     font-weight: 700;
   }
   
-  .risk-badge {
+  .tx-risk {
     padding: 4px 12px;
     border-radius: 20px;
     font-size: 11px;
     font-weight: 600;
   }
   
-  .probability {
+  .realtime-monitor .probability {
     font-size: 12px;
     color: #94a3b8;
   }
@@ -234,13 +274,13 @@
     margin: 4px 0;
   }
   
-  .empty-state {
+  .realtime-monitor .empty-state {
     text-align: center;
     padding: 60px 20px;
     color: #94a3b8;
   }
   
-  .empty-icon {
+  .realtime-monitor .empty-icon {
     font-size: 48px;
     margin-bottom: 16px;
     opacity: 0.5;

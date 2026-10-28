@@ -13,12 +13,18 @@ metadata:
   name: fraud-detection-config
   namespace: fraud-detection
 data:
-  MODEL_PATH: "/app/models"
   LOG_LEVEL: "INFO"
-  THRESHOLD: "0.5"
+  # Card history shared by all pods (deploy Redis separately, e.g. the Bitnami chart)
+  HISTORY_BACKEND: "redis"
+  REDIS_URL: "redis://redis:6379/0"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+  CORS_ORIGINS: "https://fraud-detection.example.com"
 
 ---
 # API Deployment
+# The image bakes in a trained model (see Dockerfile.api). The old manifest
+# mounted an empty PersistentVolumeClaim over /app/models, which would hide
+# that model and silently drop the API back to rule-based scoring.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -27,7 +33,10 @@ metadata:
   labels:
     app: fraud-detection-api
 spec:
-  replicas: 3
+  # Predictions and analyst feedback are stored in SQLite inside the pod
+  # (FRAUD_DATA_DIR=/data). Keep one replica unless you move that store to a
+  # shared database; card history is already shared through Redis.
+  replicas: 1
   selector:
     matchLabels:
       app: fraud-detection-api
@@ -37,49 +46,37 @@ spec:
         app: fraud-detection-api
     spec:
       containers:
-      - name: api
-        image: fraud-detection-api:latest
-        imagePullPolicy: Always
+      - name: fraud-detection-api
+        # Replace with your pushed image. A bare "fraud-detection-api:latest"
+        # with imagePullPolicy: Always resolves to docker.io/library/... and
+        # fails with ErrImagePull.
+        image: docker.io/YOUR_DOCKERHUB_USER/fraud-detection-api:latest
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8000
           name: http
-        env:
-        - name: MODEL_PATH
-          valueFrom:
-            configMapKeyRef:
-              name: fraud-detection-config
-              key: MODEL_PATH
-        - name: LOG_LEVEL
-          valueFrom:
-            configMapKeyRef:
-              name: fraud-detection-config
-              key: LOG_LEVEL
+        envFrom:
+        - configMapRef:
+            name: fraud-detection-config
         resources:
           requests:
             memory: "512Mi"
-            cpu: "500m"
+            cpu: "250m"
           limits:
-            memory: "2Gi"
-            cpu: "2000m"
+            memory: "1Gi"
+            cpu: "1000m"
         livenessProbe:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 30
+          initialDelaySeconds: 20
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 10
+          initialDelaySeconds: 5
           periodSeconds: 5
-        volumeMounts:
-        - name: models
-          mountPath: /app/models
-      volumes:
-      - name: models
-        persistentVolumeClaim:
-          claimName: fraud-detection-models-pvc
 
 ---
 # API Service
@@ -89,7 +86,7 @@ metadata:
   name: fraud-detection-api-service
   namespace: fraud-detection
 spec:
-  type: LoadBalancer
+  type: ClusterIP
   selector:
     app: fraud-detection-api
   ports:
@@ -118,30 +115,10 @@ spec:
       target:
         type: Utilization
         averageUtilization: 70
-  - type: Resource
-    resource:
-      name: memory
-      target:
-        type: Utilization
-        averageUtilization: 80
 
 ---
-# Persistent Volume Claim for Models
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: fraud-detection-models-pvc
-  namespace: fraud-detection
-spec:
-  accessModes:
-    - ReadWriteMany
-  resources:
-    requests:
-      storage: 10Gi
-  storageClassName: standard
-
----
-# Stream Processor Deployment
+# Stream Processor Deployment (requires a Kafka service reachable at
+# KAFKA_BOOTSTRAP_SERVERS — not included in this manifest)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -161,43 +138,35 @@ spec:
     spec:
       containers:
       - name: stream-processor
-        image: fraud-detection-api:latest
-        imagePullPolicy: Always
+        image: docker.io/YOUR_DOCKERHUB_USER/fraud-detection-api:latest
+        imagePullPolicy: IfNotPresent
         command: ["python", "-m", "src.streaming.stream_processor"]
-        env:
-        - name: KAFKA_BOOTSTRAP_SERVERS
-          value: "kafka:9092"
-        - name: MODEL_PATH
-          valueFrom:
-            configMapKeyRef:
-              name: fraud-detection-config
-              key: MODEL_PATH
+        envFrom:
+        - configMapRef:
+            name: fraud-detection-config
         resources:
           requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
             memory: "1Gi"
             cpu: "1000m"
-          limits:
-            memory: "2Gi"
-            cpu: "2000m"
-        volumeMounts:
-        - name: models
-          mountPath: /app/models
-      volumes:
-      - name: models
-        persistentVolumeClaim:
-          claimName: fraud-detection-models-pvc
 
 ---
-# Ingress
+# Ingress (the Service is ClusterIP; this is the only public entry point —
+# the old LoadBalancer Service + Ingress exposed the API twice)
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: fraud-detection-ingress
   namespace: fraud-detection
   annotations:
-    kubernetes.io/ingress.class: "nginx"
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # WebSocket connections need long-lived upstreams
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
 spec:
+  ingressClassName: nginx
   tls:
   - hosts:
     - fraud-detection.example.com

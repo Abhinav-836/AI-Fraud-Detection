@@ -1,3 +1,4 @@
+import time
 from typing import Dict, Any
 from .kafka_consumer import FraudKafkaConsumer
 from .kafka_producer import FraudKafkaProducer
@@ -13,16 +14,26 @@ class StreamProcessor:
     def __init__(self):
         self.consumer = FraudKafkaConsumer()
         self.producer = FraudKafkaProducer()
-        self.detector = RealTimeDetector()
+        # Falls back to rule-based scoring (with a warning) when no model is trained
+        self.detector = RealTimeDetector(require_model=False)
         self.running = False
         
     def start(self):
         """Start the stream processor"""
         logger.info("Starting stream processor")
         
-        # Connect consumer and producer
-        self.consumer.connect()
-        self.producer.connect()
+        # Connect consumer and producer. Retry: under docker-compose Kafka
+        # usually accepts connections a few seconds after this container starts.
+        for attempt in range(1, 31):
+            try:
+                self.consumer.connect()
+                self.producer.connect()
+                break
+            except Exception as e:
+                if attempt == 30:
+                    raise
+                logger.info(f"Kafka not ready ({e}); retry {attempt}/30")
+                time.sleep(2)
         
         self.running = True
         
@@ -48,8 +59,11 @@ class StreamProcessor:
             if result.get('is_fraud'):
                 alert = {
                     'transaction_id': transaction.get('transaction_id'),
+                    'card_id': result.get('card_id'),
+                    'decision': result.get('decision', 'review'),
                     'fraud_probability': result['fraud_probability'],
                     'risk_level': result['risk_level'],
+                    'reasons': result.get('factors', []),
                     'transaction_details': transaction,
                     'detection_timestamp': result['timestamp']
                 }
@@ -78,7 +92,7 @@ class StreamProcessor:
         
         self.running = False
         
-        # Close connections
+        # Close connections (close() is a no-op if never connected)
         self.consumer.close()
         self.producer.close()
         
@@ -96,16 +110,16 @@ class StreamProcessor:
 def main():
     """Main function to run stream processor"""
     processor = StreamProcessor()
-    
+
+    # consume_messages() swallows Ctrl+C itself and returns normally, so the
+    # old `except KeyboardInterrupt: stop()` never ran and the producer was
+    # never flushed. finally covers every exit path.
     try:
         processor.start()
     except KeyboardInterrupt:
         logger.info("Received interrupt signal")
+    finally:
         processor.stop()
-    except Exception as e:
-        logger.error(f"Stream processor error: {str(e)}")
-        processor.stop()
-        raise
 
 
 if __name__ == "__main__":

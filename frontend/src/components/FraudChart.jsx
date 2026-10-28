@@ -1,35 +1,65 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { useSettings } from '../context/SettingsContext';
 
-const FraudChart = () => {
-  const data = [
-    { date: 'Jan 1', fraudCases: 12, flagged: 45 },
-    { date: 'Jan 2', fraudCases: 8, flagged: 38 },
-    { date: 'Jan 3', fraudCases: 15, flagged: 52 },
-    { date: 'Jan 4', fraudCases: 10, flagged: 42 },
-    { date: 'Jan 5', fraudCases: 18, flagged: 60 },
-    { date: 'Jan 6', fraudCases: 14, flagged: 48 },
-    { date: 'Jan 7', fraudCases: 9, flagged: 35 },
-  ];
+// Bucket the API's recent predictions per minute (flagged = review + decline).
+const bucketByMinute = (predictions) => {
+  const buckets = new Map();
+  predictions.forEach((p) => {
+    const t = new Date(p.timestamp);
+    if (Number.isNaN(t.getTime())) return;
+    t.setSeconds(0, 0);
+    const key = t.getTime();
+    const b = buckets.get(key) || { time: key, scored: 0, flagged: 0 };
+    b.scored += 1;
+    b.flagged += p.decision && p.decision !== 'approve' ? 1 : 0;
+    buckets.set(key, b);
+  });
+  return [...buckets.values()].sort((a, b) => a.time - b.time);
+};
+
+const FraudChart = ({ predictions = [] }) => {
+  const { t, settings, resolvedTheme } = useSettings();
+  const tz = settings.timezone === 'local' ? undefined : settings.timezone;
+
+  const data = useMemo(
+    () => bucketByMinute(predictions).map((b) => ({
+      ...b,
+      label: new Date(b.time).toLocaleTimeString(settings.language, { hour: '2-digit', minute: '2-digit', timeZone: tz }),
+    })),
+    [predictions, settings.language, tz]
+  );
+
+  // SVG chart colours don't come from CSS, so pick them per theme
+  const dark = resolvedTheme === 'dark';
+  const axis = dark ? '#9ca3af' : '#64748b';
+  const grid = dark ? 'rgba(255,255,255,0.08)' : '#e2e8f0';
+  const tooltipStyle = dark
+    ? { background: '#111827', border: '1px solid #374151', color: '#e5e7eb' }
+    : { background: '#ffffff', border: '1px solid #e2e8f0', color: '#0f172a' };
 
   return (
     <div className="card">
       <div className="card-header">
-        <h2 className="card-title">Fraud Trends</h2>
+        <h2 className="card-title">{t('chart.title')}</h2>
       </div>
-      <div style={{ width: '100%', height: 300 }}>
-        <ResponsiveContainer>
-          <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="date" />
-            <YAxis />
-            <Tooltip />
-            <Legend />
-            <Line type="monotone" dataKey="fraudCases" stroke="#e74c3c" strokeWidth={2} />
-            <Line type="monotone" dataKey="flagged" stroke="#3498db" strokeWidth={2} />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+      {data.length === 0 ? (
+        <p className="muted-empty">{t('chart.empty')}</p>
+      ) : (
+        <div style={{ width: '100%', height: 300 }}>
+          <ResponsiveContainer>
+            <LineChart data={data}>
+              <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+              <XAxis dataKey="label" stroke={axis} />
+              <YAxis allowDecimals={false} stroke={axis} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Legend />
+              <Line type="monotone" dataKey="scored" name={t('chart.scored')} stroke="#3b82f6" strokeWidth={2} />
+              <Line type="monotone" dataKey="flagged" name={t('chart.flagged')} stroke="#ef4444" strokeWidth={2} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </div>
   );
 };

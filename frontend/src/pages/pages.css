@@ -1,0 +1,308 @@
+/* Shared styles for the Settings and Analytics pages. These replace the
+   inline <style> blocks, whose hard-coded light colours (#2c3e50 text,
+   #f8f9fa panels) ignored the theme. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  color: var(--header-text);
+}
+
+.page-header h1 {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.page-subtitle {
+  margin-top: 4px;
+  font-size: 14px;
+  opacity: 0.85;
+}
+
+.page-subtitle.muted {
+  color: var(--text-muted);
+  opacity: 1;
+  margin: 0 0 16px;
+}
+
+/* Settings */
+.settings-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid var(--border);
+}
+
+.section-icon {
+  color: var(--primary);
+  font-size: 22px;
+}
+
+.section-header h2 {
+  font-size: 20px;
+  color: var(--text);
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+  gap: 16px;
+}
+
+.setting-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+}
+
+.setting-info h3 {
+  font-size: 15px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.setting-info p {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.setting-preview {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.setting-item .setting-select {
+  width: auto;
+  min-width: 170px;
+  padding: 8px 12px;
+}
+
+.setting-status {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.setting-status.ok { color: var(--success); }
+.setting-status.error { color: var(--danger); }
+
+/* Analytics */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+}
+
+.kpi-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.kpi-label svg {
+  color: var(--primary);
+}
+
+.kpi-value {
+  margin-top: 10px;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.analytics-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.patterns-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pattern-item {
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.pattern-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.pattern-name {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.pattern-count,
+.pattern-percent {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.pattern-percent {
+  text-align: right;
+}
+
+.progress-bar {
+  height: 6px;
+  background: var(--border-strong);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 6px 0;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--gradient-primary);
+  border-radius: 3px;
+}
+
+.fraud-rate {
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.fraud-rate.high {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--danger);
+}
+
+.fraud-rate.low {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--success);
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+.metric {
+  text-align: center;
+  padding: 18px;
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+
+.metric h4 {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.metric-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+@media (max-width: 1100px) {
+  .analytics-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .setting-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .setting-item .setting-select {
+    width: 100%;
+  }
+}
+
+.metric-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.metrics-grid.compact .metric-value { font-size: 20px; }
+
+.metrics-grid + .candidates { margin-top: 18px; }
+
+.candidates h4 {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.candidates ul { list-style: none; }
+
+.candidates li {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.candidates li.chosen {
+  background: rgba(99, 102, 241, 0.12);
+  font-weight: 700;
+}
+
+.threshold-form { flex-wrap: wrap; }
+
+.threshold-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.threshold-inputs label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.threshold-inputs input {
+  width: 120px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--input-bg);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.queue-hint { margin: 10px 0 14px; font-size: 13px; }

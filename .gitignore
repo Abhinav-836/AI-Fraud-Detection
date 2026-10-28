@@ -78,3 +78,13 @@ yarn-error.log
 # Reports
 reports/*.json
 reports/*.html
+# Training artifacts / builds
+/models/
+/data/
+frontend/build/
+frontend/dist/
+
+# Desktop build
+.venv-desktop/
+desktop/assets/
+*.spec.bak

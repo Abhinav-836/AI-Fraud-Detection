@@ -1,7 +1,7 @@
 from kafka import KafkaConsumer
 import json
-import yaml
 from typing import Callable
+from ..utils.config import load_settings
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -15,9 +15,10 @@ class FraudKafkaConsumer:
         self.consumer = None
         
     def _load_config(self, config_path: str) -> dict:
-        """Load configuration"""
-        with open(config_path, 'r') as f:
-            return yaml.safe_load(f)
+        """Load settings.yaml (project-root relative) with env overrides such as
+        KAFKA_BOOTSTRAP_SERVERS — the Kubernetes manifest sets that variable,
+        but the old code only ever read the YAML file, so pods dialled localhost."""
+        return load_settings(config_path)
     
     def connect(self):
         """Connect to Kafka"""

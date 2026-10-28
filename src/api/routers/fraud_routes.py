@@ -1,234 +1,176 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
-from typing import List, Optional
 from datetime import datetime
-import sys
-from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-# Add project root to path
-project_root = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict, Field
 
-try:
-    from src.utils.logger import get_logger
-    logger = get_logger(__name__)
-except:
-    import logging
-    logger = logging.getLogger(__name__)
+from ...utils.logger import get_logger
+from ..security import require_api_key
+from ..services.fraud_service import fraud_service
 
-router = APIRouter()
+logger = get_logger(__name__)
+
+router = APIRouter(dependencies=[Depends(require_api_key)])
 
 
 class Transaction(BaseModel):
-    """Transaction model"""
-    transaction_id: str
-    amount: float = Field(..., gt=0)
-    merchant_category: Optional[str] = "unknown"
-    device_type: Optional[str] = "web"
-    location_country: Optional[str] = "US"
-    hour_of_day: Optional[int] = Field(None, ge=0, le=23)
-    day_of_week: Optional[int] = Field(None, ge=0, le=6)
-    timestamp: Optional[datetime] = None
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "transaction_id": "TXN123456",
-                "amount": 1500.50,
-                "merchant_category": "retail",
-                "device_type": "mobile",
-                "location_country": "US",
-                "hour_of_day": 14,
-                "day_of_week": 3
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "transaction_id": "TXN123456",
+            "card_id": "CARD_000123",
+            "amount": 1500.50,
+            "merchant_category": "electronics",
+            "device_type": "mobile",
+            "location_country": "US",
+            "timestamp": "2026-10-28T14:05:00+05:30",
         }
+    })
+
+    transaction_id: str = Field(..., min_length=1, max_length=128)
+    card_id: Optional[str] = Field(None, max_length=64, description="Card / account identifier; enables history features")
+    amount: float = Field(..., gt=0, le=10_000_000)
+    merchant_category: str = Field("unknown", max_length=64)
+    device_type: str = Field("unknown", max_length=32)
+    location_country: str = Field("US", min_length=2, max_length=3)
+    hour_of_day: Optional[int] = Field(None, ge=0, le=23)
+    day_of_week: Optional[int] = Field(None, ge=0, le=6, description="0 = Monday ... 6 = Sunday")
+    timestamp: Optional[datetime] = Field(None, description="Defaults to now")
 
 
 class TransactionBatch(BaseModel):
-    """Batch of transactions"""
-    transactions: List[Transaction]
+    transactions: List[Transaction] = Field(..., min_length=1, max_length=1000)
+
+
+class Driver(BaseModel):
+    feature: str
+    impact: float
+    key: str
+    params: Dict[str, Any]
+    text: str
 
 
 class FraudPrediction(BaseModel):
-    """Fraud prediction response"""
+    prediction_id: Optional[int]
     transaction_id: str
-    is_fraud: bool
-    fraud_probability: float
+    card_id: Optional[str]
+    decision: str = Field(..., description="approve | review | decline")
+    is_fraud: bool = Field(..., description="True when the decision is review or decline")
+    fraud_probability: float = Field(..., description="Calibrated probability that the transaction is fraud")
     risk_level: str
-    confidence: float
+    drivers: List[Driver]
     factors: List[str]
+    model_type: str
+    processing_time_ms: float
     timestamp: datetime
 
 
-def calculate_fraud_score(transaction: Transaction) -> tuple:
-    """
-    Simple rule-based fraud detection
-    
-    Returns:
-        (fraud_probability, risk_factors)
-    """
-    fraud_score = 0.0
-    risk_factors = []
-    
-    # Rule 1: High amount transactions
-    if transaction.amount > 1000:
-        fraud_score += 0.25
-        risk_factors.append("High transaction amount")
-    
-    if transaction.amount > 5000:
-        fraud_score += 0.25
-        risk_factors.append("Very high transaction amount")
-    
-    # Rule 2: Unusual hours
-    if transaction.hour_of_day is not None:
-        if transaction.hour_of_day < 6 or transaction.hour_of_day > 22:
-            fraud_score += 0.15
-            risk_factors.append("Unusual transaction time")
-    
-    # Rule 3: Weekend transactions
-    if transaction.day_of_week is not None and transaction.day_of_week >= 5:
-        fraud_score += 0.10
-        risk_factors.append("Weekend transaction")
-    
-    # Rule 4: High-risk merchant categories
-    high_risk_categories = ["gambling", "money_transfer", "pawn_shop", "cryptocurrency"]
-    if transaction.merchant_category.lower() in high_risk_categories:
-        fraud_score += 0.30
-        risk_factors.append("High-risk merchant category")
-    
-    # Rule 5: International transactions
-    if transaction.location_country not in ["US", "CA", "UK", "AU"]:
-        fraud_score += 0.15
-        risk_factors.append("International transaction")
-    
-    # Rule 6: Mobile device transactions (slightly higher risk)
-    if transaction.device_type == "mobile":
-        fraud_score += 0.05
-        risk_factors.append("Mobile device transaction")
-    
-    return min(fraud_score, 0.95), risk_factors
+class BatchPredictionResponse(BaseModel):
+    total_transactions: int
+    approved: int
+    in_review: int
+    declined: int
+    predictions: List[FraudPrediction]
+
+
+class Feedback(BaseModel):
+    is_fraud: bool = Field(..., description="Analyst verdict: true = confirmed fraud, false = legitimate")
+
+
+class PolicyUpdate(BaseModel):
+    review_threshold: float = Field(..., gt=0, lt=1)
+    decline_threshold: float = Field(..., gt=0, lt=1)
+
+
+def _payload(tx: Transaction) -> dict:
+    data = tx.model_dump()
+    if data.get("timestamp") is not None:
+        data["timestamp"] = data["timestamp"].isoformat()
+    return data
 
 
 @router.post("/predict", response_model=FraudPrediction)
-async def predict_fraud(transaction: Transaction):
-    """
-    Predict fraud for a single transaction
-    
-    Args:
-        transaction: Transaction data
-        
-    Returns:
-        Fraud prediction result
-    """
+def predict_fraud(transaction: Transaction):
+    """Score one transaction: approve, review or decline, with the reasons."""
     try:
-        logger.info(f"Processing prediction for transaction: {transaction.transaction_id}")
-        
-        # Calculate fraud score
-        fraud_probability, risk_factors = calculate_fraud_score(transaction)
-        
-        is_fraud = fraud_probability > 0.5
-        
-        # Determine risk level
-        if fraud_probability < 0.3:
-            risk_level = "low"
-        elif fraud_probability < 0.7:
-            risk_level = "medium"
-        else:
-            risk_level = "high"
-        
-        # Calculate confidence
-        confidence = abs(fraud_probability - 0.5) * 2
-        
-        if not risk_factors:
-            risk_factors = ["No significant risk factors detected"]
-        
-        result = FraudPrediction(
-            transaction_id=transaction.transaction_id,
-            is_fraud=is_fraud,
-            fraud_probability=round(fraud_probability, 3),
-            risk_level=risk_level,
-            confidence=round(confidence, 3),
-            factors=risk_factors,
-            timestamp=datetime.now()
-        )
-        
-        logger.info(
-            f"Prediction complete - ID: {transaction.transaction_id}, "
-            f"Fraud: {is_fraud}, Probability: {fraud_probability:.3f}"
-        )
-        
-        return result
-        
+        return fraud_service.predict(_payload(transaction), source="api")
     except Exception as e:
-        logger.error(f"Prediction error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception(f"Prediction error for {transaction.transaction_id}")
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
 
 
-@router.post("/predict/batch")
-async def predict_fraud_batch(batch: TransactionBatch):
-    """
-    Predict fraud for multiple transactions
-    
-    Args:
-        batch: Batch of transactions
-        
-    Returns:
-        List of fraud predictions
-    """
+@router.post("/predict/batch", response_model=BatchPredictionResponse)
+def predict_fraud_batch(batch: TransactionBatch):
+    """Score many transactions (in time order, so later ones see earlier ones in card history)."""
     try:
-        logger.info(f"Processing batch of {len(batch.transactions)} transactions")
-        
-        predictions = []
-        fraud_count = 0
-        
-        for transaction in batch.transactions:
-            prediction = await predict_fraud(transaction)
-            predictions.append(prediction.dict())
-            if prediction.is_fraud:
-                fraud_count += 1
-        
-        logger.info(
-            f"Batch complete - Total: {len(predictions)}, "
-            f"Fraud detected: {fraud_count}"
-        )
-        
-        return {
-            "total_transactions": len(predictions),
-            "fraud_detected": fraud_count,
-            "fraud_rate": fraud_count / len(predictions) if predictions else 0,
-            "predictions": predictions
-        }
-        
+        preds = fraud_service.predict_batch([_payload(t) for t in batch.transactions], source="batch")
     except Exception as e:
-        logger.error(f"Batch prediction error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Batch prediction error")
+        raise HTTPException(status_code=500, detail=f"Batch prediction failed: {e}")
+    count = lambda d: sum(p["decision"] == d for p in preds)  # noqa: E731
+    return {"total_transactions": len(preds), "approved": count("approve"), "in_review": count("review"),
+            "declined": count("decline"), "predictions": preds}
 
 
 @router.get("/stats")
-async def get_statistics():
-    """Get fraud detection statistics"""
-    return {
-        "total_predictions": 0,
-        "fraud_detected": 0,
-        "accuracy": 0.0,
-        "model_type": "rule_based",
-        "message": "Statistics tracking not yet implemented"
-    }
+def get_statistics():
+    """All-time counts (persisted in the database)."""
+    return fraud_service.get_statistics()
+
+
+@router.get("/predictions/recent")
+def get_recent_predictions(
+    limit: int = Query(50, ge=1, le=1000),
+    flagged_only: bool = False,
+    unlabeled_only: bool = False,
+):
+    """Most recent predictions from every channel. flagged_only = the review / decline queue."""
+    return fraud_service.get_recent(limit=limit, flagged_only=flagged_only, unlabeled_only=unlabeled_only)
+
+
+@router.post("/predictions/{prediction_id}/feedback")
+def submit_feedback(prediction_id: int, feedback: Feedback):
+    """Analyst verdict on a prediction. Labels are used the next time the model is retrained."""
+    row = fraud_service.label(prediction_id, feedback.is_fraud)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Prediction {prediction_id} not found")
+    return row
 
 
 @router.get("/model/info")
-async def get_model_info():
-    """Get information about the loaded model"""
-    return {
-        "model_type": "rule_based",
-        "version": "1.0.0",
-        "status": "active",
-        "description": "Simple rule-based fraud detection system"
-    }
+def get_model_info():
+    return fraud_service.get_model_info()
 
 
-# Add a simple test endpoint for CORS verification
-@router.options("/predict")
-async def predict_options():
-    """Handle OPTIONS request for CORS preflight"""
-    return {}
+@router.post("/model/retrain", status_code=status.HTTP_202_ACCEPTED)
+def retrain_model():
+    """Retrain in the background with all analyst feedback, then hot-swap the model."""
+    return fraud_service.start_retrain()
+
+
+@router.get("/model/retrain")
+def retrain_status():
+    return fraud_service.retrain_status
+
+
+@router.get("/settings/decision")
+def get_decision_policy():
+    """Current approve/review/decline thresholds, plus presets derived from validation data."""
+    return fraud_service.get_policy()
+
+
+@router.put("/settings/decision")
+def set_decision_policy(update: PolicyUpdate):
+    """
+    Change the thresholds for this API process. In-memory: resets to the
+    trained policy on restart (retrain to change the default).
+    """
+    try:
+        return fraud_service.set_policy(update.review_threshold, update.decline_threshold)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.get("/monitoring")
+def get_monitoring():
+    """Latency percentiles, decision mix, score drift vs training, simulation scorecard."""
+    return fraud_service.get_monitoring()

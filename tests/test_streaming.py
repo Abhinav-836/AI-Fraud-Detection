@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from src.streaming.kafka_producer import FraudKafkaProducer
 from src.streaming.kafka_consumer import FraudKafkaConsumer
 from src.streaming.stream_processor import StreamProcessor
@@ -166,6 +166,7 @@ class TestStreamProcessor:
         mock_processor.detector.detect = Mock(return_value={
             'transaction_id': 'TXN_002',
             'is_fraud': True,
+            'decision': 'decline',
             'fraud_probability': 0.95,
             'risk_level': 'high',
             'timestamp': '2024-01-01T00:00:00'
@@ -178,6 +179,8 @@ class TestStreamProcessor:
         
         assert result['is_fraud'] is True
         mock_processor.detector.detect.assert_called_once()
+        alert = mock_processor.producer.send_fraud_alert.call_args[0][0]
+        assert alert['decision'] == 'decline' and alert['transaction_id'] == 'TXN_002'
         mock_processor.producer.send_fraud_alert.assert_called_once()
     
     def test_get_stats(self, mock_processor):

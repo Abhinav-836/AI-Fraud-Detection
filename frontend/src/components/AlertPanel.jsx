@@ -1,77 +1,78 @@
-import React, { useState, useEffect } from 'react';
-import { FaExclamationTriangle, FaCheckCircle, FaClock } from 'react-icons/fa';
+import React, { useState } from 'react';
+import { FaCheck, FaTimes } from 'react-icons/fa';
+import fraudAPI from '../services/fraudApi';
+import { useSettings } from '../context/SettingsContext';
+import DecisionBadge, { DriverList } from './DecisionBadge';
 import './AlertPanel.css';
 
-const AlertPanel = () => {
-  const [alerts, setAlerts] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+// Review queue: flagged transactions without an analyst verdict yet.
+// The old "Resolve" button only changed local state; now each verdict is
+// stored by the API (POST /predictions/{id}/feedback) and used as a
+// training label the next time the model is retrained.
+const AlertPanel = ({ queue = [], onLabeled }) => {
+  const { t, formatCurrency, formatDateTime, merchantName, countryName, formatPercent } = useSettings();
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState(null);
+  const [done, setDone] = useState({}); // hide immediately, before the next poll
 
-  useEffect(() => {
-    setTimeout(() => {
-      setAlerts([
-        { id: 1, type: 'high', message: 'Unusual transaction pattern detected', timestamp: new Date().toLocaleString(), status: 'pending' },
-        { id: 2, type: 'medium', message: 'Multiple failed login attempts', timestamp: new Date().toLocaleString(), status: 'investigating' },
-        { id: 3, type: 'low', message: 'New device login detected', timestamp: new Date().toLocaleString(), status: 'resolved' },
-        { id: 4, type: 'high', message: 'Suspicious withdrawal request', timestamp: new Date().toLocaleString(), status: 'pending' },
-      ]);
-      setIsLoading(false);
-    }, 1000);
-  }, []);
-
-  const getAlertIcon = (type) => {
-    switch (type) {
-      case 'high': return <FaExclamationTriangle className="alert-icon high" />;
-      case 'medium': return <FaExclamationTriangle className="alert-icon medium" />;
-      default: return <FaExclamationTriangle className="alert-icon low" />;
+  const label = async (id, isFraud) => {
+    setBusy(id);
+    setError(null);
+    try {
+      await fraudAPI.sendFeedback(id, isFraud);
+      setDone((prev) => ({ ...prev, [id]: true }));
+      if (onLabeled) onLabeled();
+    } catch (err) {
+      setError(t('queue.error', { message: err.message }));
+    } finally {
+      setBusy(null);
     }
   };
 
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'resolved': return <FaCheckCircle className="status-icon resolved" />;
-      case 'investigating': return <FaClock className="status-icon investigating" />;
-      default: return <FaClock className="status-icon pending" />;
-    }
-  };
-
-  const handleResolveAlert = (id) => {
-    setAlerts(alerts.map(alert => alert.id === id ? { ...alert, status: 'resolved' } : alert));
-  };
-
-  if (isLoading) return <div className="loading">Loading alerts...</div>;
+  const items = queue.filter((p) => !done[p.id]);
 
   return (
     <div className="alert-panel card">
       <div className="card-header">
-        <h2 className="card-title">Recent Alerts</h2>
-        <span className="alert-count">{alerts.length} alerts</span>
+        <h2 className="card-title">{t('queue.title')}</h2>
+        <span className="alert-count">{t('queue.waiting', { n: items.length })}</span>
       </div>
-      <div className="alerts-list">
-        {alerts.map((alert) => (
-          <div key={alert.id} className={`alert-item alert-${alert.type}`}>
-            <div className="alert-header">
-              {getAlertIcon(alert.type)}
-              <div className="alert-info">
-                <h4>{alert.message}</h4>
-                <span className="alert-time">{alert.timestamp}</span>
+      <p className="queue-hint">{t('queue.hint')}</p>
+      {error && <div className="alert-danger-custom">{error}</div>}
+
+      {items.length === 0 ? (
+        <p className="muted-empty">{t('queue.empty')}</p>
+      ) : (
+        <div className="alerts-list">
+          {items.map((p) => (
+            <div key={p.id} className={`alert-item decision-${p.decision}`}>
+              <div className="alert-header">
+                <div className="alert-info">
+                  <h4>
+                    {formatCurrency(p.amount)} · {merchantName(p.merchant_category)} · {countryName(p.location_country)}
+                  </h4>
+                  <span className="alert-time">
+                    {p.card_id && <span className="mono">{p.card_id}</span>} · {formatDateTime(p.timestamp)}
+                  </span>
+                </div>
+                <div className="alert-score">
+                  <DecisionBadge decision={p.decision} />
+                  <span className="alert-prob">{formatPercent(p.probability)}</span>
+                </div>
               </div>
-            </div>
-            <div className="alert-footer">
-              <div className="alert-status">
-                {getStatusIcon(alert.status)}
-                <span className={`status-text status-${alert.status}`}>
-                  {alert.status.charAt(0).toUpperCase() + alert.status.slice(1)}
-                </span>
-              </div>
-              {alert.status !== 'resolved' && (
-                <button className="btn btn-primary btn-sm" onClick={() => handleResolveAlert(alert.id)}>
-                  Resolve
+              <DriverList drivers={p.drivers} max={3} className="alert-drivers" />
+              <div className="alert-footer">
+                <button className="btn btn-danger btn-sm" disabled={busy === p.id} onClick={() => label(p.id, true)}>
+                  <FaTimes /> {t('queue.confirm')}
                 </button>
-              )}
+                <button className="btn btn-success btn-sm" disabled={busy === p.id} onClick={() => label(p.id, false)}>
+                  <FaCheck /> {t('queue.legit')}
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

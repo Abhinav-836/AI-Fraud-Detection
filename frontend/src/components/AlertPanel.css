@@ -1,134 +1,150 @@
+/* Scoped to .alert-panel and themed through the variables in index.css.
+   The old file hard-coded light colours and also redefined the global
+   .btn-sm and .loading classes, which changed buttons on every page. */
 .alert-panel {
-    height: 100%;
-  }
-  
-  .alert-count {
-    background-color: #e74c3c;
-    color: white;
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 14px;
-    font-weight: 600;
-  }
-  
-  .alerts-list {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-  
-  .alert-item {
-    padding: 16px;
-    border-radius: 8px;
-    border-left: 4px solid #ddd;
-  }
-  
-  .alert-item.alert-high {
-    border-left-color: #e74c3c;
-    background-color: rgba(231, 76, 60, 0.05);
-  }
-  
-  .alert-item.alert-medium {
-    border-left-color: #f39c12;
-    background-color: rgba(243, 156, 18, 0.05);
-  }
-  
-  .alert-item.alert-low {
-    border-left-color: #3498db;
-    background-color: rgba(52, 152, 219, 0.05);
-  }
-  
-  .alert-header {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    margin-bottom: 12px;
-  }
-  
-  .alert-icon {
-    font-size: 20px;
-    margin-top: 2px;
-  }
-  
-  .alert-icon.high {
-    color: #e74c3c;
-  }
-  
-  .alert-icon.medium {
-    color: #f39c12;
-  }
-  
-  .alert-icon.low {
-    color: #3498db;
-  }
-  
-  .alert-info h4 {
-    font-size: 16px;
-    font-weight: 500;
-    color: #2c3e50;
-    margin-bottom: 4px;
-  }
-  
-  .alert-time {
-    font-size: 12px;
-    color: #7f8c8d;
-  }
-  
-  .alert-footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  
-  .alert-status {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  
-  .status-icon {
-    font-size: 16px;
-  }
-  
-  .status-icon.resolved {
-    color: #27ae60;
-  }
-  
-  .status-icon.investigating {
-    color: #f39c12;
-  }
-  
-  .status-icon.pending {
-    color: #e74c3c;
-  }
-  
-  .status-text {
-    font-size: 14px;
-    font-weight: 500;
-  }
-  
-  .status-resolved {
-    color: #27ae60;
-  }
-  
-  .status-investigating {
-    color: #f39c12;
-  }
-  
-  .status-pending {
-    color: #e74c3c;
-  }
-  
-  .btn-sm {
-    padding: 6px 12px;
-    font-size: 14px;
-  }
-  
-  .loading {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 200px;
-    font-size: 18px;
-    color: #7f8c8d;
-  }
+  height: 100%;
+}
+
+.alert-panel .alert-count {
+  background-color: var(--danger);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.alert-panel .alerts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.alert-panel .alert-item {
+  padding: 14px 16px;
+  border-radius: 10px;
+  border-left: 4px solid var(--border-strong);
+  background: var(--surface-muted);
+}
+
+.alert-panel .alert-item.alert-high {
+  border-left-color: var(--danger);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.alert-panel .alert-item.alert-medium {
+  border-left-color: var(--warning);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.alert-panel .alert-item.alert-low {
+  border-left-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.alert-panel .alert-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.alert-panel .alert-icon {
+  font-size: 18px;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.alert-panel .alert-icon.high { color: var(--danger); }
+.alert-panel .alert-icon.medium { color: var(--warning); }
+.alert-panel .alert-icon.low { color: #3b82f6; }
+
+.alert-panel .alert-info {
+  min-width: 0;
+}
+
+.alert-panel .alert-info h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+}
+
+.alert-panel .alert-time {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.alert-panel .alert-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.alert-panel .alert-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.alert-panel .status-icon { font-size: 15px; }
+.alert-panel .status-icon.resolved { color: var(--success); }
+.alert-panel .status-icon.pending { color: var(--danger); }
+
+.alert-panel .status-text {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* .status-text.pending, not .status-pending: the global .status-pending
+   badge class (amber background) was bleeding into this label */
+.alert-panel .status-text.resolved { color: var(--success); }
+.alert-panel .status-text.pending { color: var(--danger); }
+
+.alert-panel .queue-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: -6px 0 14px;
+}
+
+.alert-panel .alert-item.decision-decline {
+  border-left-color: var(--danger);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.alert-panel .alert-item.decision-review {
+  border-left-color: var(--warning);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.alert-panel .alert-header { justify-content: space-between; }
+
+.alert-panel .alert-score {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.alert-panel .alert-prob {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.alert-panel .alert-drivers {
+  margin: 0 0 10px;
+  color: var(--text);
+}
+
+.alert-panel .alert-footer { justify-content: flex-end; }
+
+.alert-panel .alerts-list {
+  max-height: 560px;
+  overflow-y: auto;
+}

@@ -1,7 +1,7 @@
 # Application Settings
 app:
   name: "AI Fraud Detection System"
-  version: "1.0.0"
+  version: "2.0.0"
   environment: "development"
   debug: true
 
@@ -11,9 +11,11 @@ api:
   port: 8000
   workers: 4
   reload: true
-  cors_origins:
+  cors_origins:            # override with CORS_ORIGINS="https://a.com,https://b.com"
     - "http://localhost:3000"
-    - "http://localhost:8000"
+    - "http://127.0.0.1:3000"
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
 
 # Database Configuration
 database:
@@ -26,7 +28,7 @@ database:
 
 # Kafka Configuration
 kafka:
-  bootstrap_servers:
+  bootstrap_servers:       # override with KAFKA_BOOTSTRAP_SERVERS="host1:9092,host2:9092"
     - "localhost:9092"
   topics:
     transactions: "transactions"
@@ -34,18 +36,19 @@ kafka:
   consumer_group: "fraud_detection_group"
   auto_offset_reset: "earliest"
 
-# Redis Configuration
-redis:
-  host: "localhost"
-  port: 6379
-  db: 0
-  decode_responses: true
+# Card history store (velocity / behaviour features)
+history:
+  backend: "memory"                  # memory | redis   (env HISTORY_BACKEND)
+  redis_url: "redis://localhost:6379/0"  # env REDIS_URL; use redis when running several API workers
+
+# Predictions + analyst feedback
+storage:
+  db_path: "data/fraud.db"           # SQLite, relative to FRAUD_DATA_DIR (env FRAUD_DB_PATH)
 
 # Model Configuration
 model:
   default_model: "xgboost"
-  model_path: "models/"
-  threshold: 0.5
+  model_path: "models"     # override with MODEL_PATH
   retrain_interval_days: 7
 
 # Logging Configuration
@@ -56,8 +59,4 @@ logging:
   max_bytes: 10485760
   backup_count: 5
 
-# Monitoring
-monitoring:
-  enable_metrics: true
-  prometheus_port: 9090
-  alert_threshold: 0.8
+# Monitoring: GET /api/v1/monitoring (latency, decision mix, score drift)

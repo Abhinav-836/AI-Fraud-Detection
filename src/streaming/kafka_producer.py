@@ -54,7 +54,7 @@ class FraudKafkaProducer:
             topic = self.config['kafka']['topics']['transactions']
             
             # Add metadata
-            transaction['produced_at'] = datetime.now().isoformat()
+            transaction = {**transaction, 'produced_at': datetime.now().isoformat()}
             
             # Send to Kafka
             future = self.producer.send(
@@ -94,7 +94,7 @@ class FraudKafkaProducer:
             topic = self.config['kafka']['topics']['fraud_alerts']
             
             # Add metadata
-            alert['alert_generated_at'] = datetime.now().isoformat()
+            alert = {**alert, 'alert_generated_at': datetime.now().astimezone().isoformat()}
             
             # Send to Kafka
             future = self.producer.send(

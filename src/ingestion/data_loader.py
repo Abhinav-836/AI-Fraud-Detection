@@ -1,187 +1,87 @@
+import os
+from typing import Tuple
+
 import pandas as pd
-import numpy as np
-from pathlib import Path
-from typing import Optional, Tuple
-import yaml
-from sqlalchemy import create_engine
+
+from ..utils.config import load_settings, load_yaml, resolve_path, writable_path
 from ..utils.logger import get_logger
+from .kaggle_loader import load_kaggle_dataset
+from .simulator import generate_dataset
 
 logger = get_logger(__name__)
 
+REQUIRED_COLUMNS = ["timestamp", "amount", "is_fraud"]
+
 
 class DataLoader:
-    """Load data from various sources for fraud detection"""
-    
+    """Load transaction data from the simulator, the Kaggle dataset, a CSV or Postgres."""
+
     def __init__(self, config_path: str = "config/settings.yaml"):
-        self.config = self._load_config(config_path)
-        self.data_path = Path("data")
-        
-    def _load_config(self, config_path: str) -> dict:
-        """Load configuration from YAML file"""
-        with open(config_path, 'r') as f:
-            return yaml.safe_load(f)
-    
-    def load_csv(self, filename: str, data_type: str = "raw") -> pd.DataFrame:
-        """
-        Load data from CSV file
-        
-        Args:
-            filename: Name of CSV file
-            data_type: Type of data (raw, processed, external)
-            
-        Returns:
-            DataFrame with loaded data
-        """
-        filepath = self.data_path / data_type / filename
-        logger.info(f"Loading data from {filepath}")
-        
-        try:
-            df = pd.read_csv(filepath)
-            logger.info(f"Loaded {len(df)} records from {filename}")
-            return df
-        except Exception as e:
-            logger.error(f"Error loading {filename}: {str(e)}")
-            raise
-    
-    def load_from_database(self, query: str) -> pd.DataFrame:
-        """
-        Load data from database
-        
-        Args:
-            query: SQL query to execute
-            
-        Returns:
-            DataFrame with query results
-        """
-        db_config = self.config['database']
-        connection_string = (
-            f"postgresql://{db_config['host']}:{db_config['port']}/{db_config['name']}"
-        )
-        
-        logger.info("Loading data from database")
-        
-        try:
-            engine = create_engine(connection_string)
-            df = pd.read_sql(query, engine)
-            logger.info(f"Loaded {len(df)} records from database")
-            return df
-        except Exception as e:
-            logger.error(f"Error loading from database: {str(e)}")
-            raise
-    
-    def load_synthetic_data(self, n_samples: int = 10000, fraud_ratio: float = 0.1) -> pd.DataFrame:
-        """
-        Generate synthetic transaction data for testing
-        
-        Args:
-            n_samples: Number of samples to generate
-            fraud_ratio: Proportion of fraudulent transactions
-            
-        Returns:
-            DataFrame with synthetic data
-        """
-        logger.info(f"Generating {n_samples} synthetic transactions")
-        
-        np.random.seed(42)
-        
-        # Generate normal transactions
-        n_fraud = int(n_samples * fraud_ratio)
-        n_normal = n_samples - n_fraud
-        
-        data = {
-            'transaction_id': [f'TXN_{i:08d}' for i in range(n_samples)],
-            'amount': np.concatenate([
-                np.random.lognormal(3, 1, n_normal),  # Normal transactions
-                np.random.lognormal(5, 1.5, n_fraud)  # Fraudulent transactions
-            ]),
-            'merchant_category': np.random.choice(
-                ['retail', 'food', 'travel', 'entertainment', 'utilities'], 
-                n_samples
-            ),
-            'device_type': np.random.choice(
-                ['mobile', 'web', 'pos'], 
-                n_samples, 
-                p=[0.5, 0.3, 0.2]
-            ),
-            'location_country': np.random.choice(
-                ['US', 'UK', 'CA', 'DE', 'FR'], 
-                n_samples
-            ),
-            'hour_of_day': np.random.randint(0, 24, n_samples),
-            'day_of_week': np.random.randint(0, 7, n_samples),
-            'is_fraud': np.concatenate([
-                np.zeros(n_normal, dtype=int),
-                np.ones(n_fraud, dtype=int)
-            ])
-        }
-        
-        df = pd.DataFrame(data)
-        
-        # Shuffle the dataframe
-        df = df.sample(frac=1, random_state=42).reset_index(drop=True)
-        
-        # Add timestamp
-        df['timestamp'] = pd.date_range(
-            start='2024-01-01', 
-            periods=n_samples, 
-            freq='5min'
-        )
-        
-        logger.info(f"Generated {n_samples} synthetic transactions ({n_fraud} fraudulent)")
+        self.config = load_settings(config_path)
+
+    # ------------------------------------------------------------ sources
+    def load_synthetic_data(self, n_customers: int = 2000, days: int = 60, seed: int = 42) -> pd.DataFrame:
+        logger.info(f"Simulating {n_customers} customers over {days} days")
+        df = generate_dataset(n_customers=n_customers, days=days, seed=seed)
+        logger.info(f"Simulated {len(df)} transactions ({df['is_fraud'].mean():.2%} fraud)")
         return df
-    
+
+    def load_kaggle(self, directory: str = "data/raw/kaggle") -> pd.DataFrame:
+        return load_kaggle_dataset(directory)
+
+    def load_csv(self, filename: str) -> pd.DataFrame:
+        """
+        CSV in this project's schema: timestamp, amount, is_fraud, and ideally
+        card_id, merchant_category, device_type, location_country.
+        """
+        path = resolve_path(filename)
+        if not path.exists():
+            path = resolve_path("data/raw") / filename
+        df = pd.read_csv(path)
+        missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
+        if missing:
+            raise ValueError(f"{path.name} is missing required columns: {missing}")
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df = df.dropna(subset=["timestamp"]).sort_values("timestamp", kind="stable").reset_index(drop=True)
+        logger.info(f"Loaded {len(df)} records from {path.name}")
+        return df
+
+    def _database_url(self) -> str:
+        if os.getenv("DATABASE_URL"):
+            return os.environ["DATABASE_URL"]
+        db = self.config.get('database', {})
+        creds_path = resolve_path("config/credentials.yaml")
+        creds = load_yaml(creds_path).get('database', {}) if creds_path.exists() else {}
+        user, password = creds.get('username', ''), creds.get('password', '')
+        auth = f"{user}:{password}@" if user else ""
+        return f"postgresql://{auth}{db.get('host', 'localhost')}:{db.get('port', 5432)}/{db.get('name', 'fraud_detection')}"
+
+    def load_from_database(self, query: str) -> pd.DataFrame:
+        from sqlalchemy import create_engine, text  # optional dependency
+        engine = create_engine(self._database_url())
+        with engine.connect() as conn:
+            return pd.read_sql(text(query), conn)
+
+    # ------------------------------------------------------------ splitting
+    @staticmethod
+    def time_split(df: pd.DataFrame, val_size: float = 0.15, test_size: float = 0.15
+                   ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """
+        Chronological split: train on the past, validate on the next period,
+        test on the most recent. A random split leaks future card behaviour
+        into training and overstates how well the model will do live.
+        """
+        df = df.sort_values("timestamp", kind="stable")
+        n = len(df)
+        train_end = int(n * (1 - val_size - test_size))
+        val_end = int(n * (1 - test_size))
+        train, val, test = df.iloc[:train_end], df.iloc[train_end:val_end], df.iloc[val_end:]
+        logger.info(f"Time split: train={len(train)} val={len(val)} test={len(test)} "
+                    f"(fraud {train['is_fraud'].mean():.2%}/{val['is_fraud'].mean():.2%}/{test['is_fraud'].mean():.2%})")
+        return train, val, test
+
     def save_processed_data(self, df: pd.DataFrame, filename: str):
-        """
-        Save processed data to CSV
-        
-        Args:
-            df: DataFrame to save
-            filename: Output filename
-        """
-        filepath = self.data_path / "processed" / filename
-        filepath.parent.mkdir(parents=True, exist_ok=True)
-        
-        df.to_csv(filepath, index=False)
-        logger.info(f"Saved processed data to {filepath}")
-    
-    def split_data(
-        self, 
-        df: pd.DataFrame, 
-        target_col: str = 'is_fraud',
-        test_size: float = 0.2,
-        val_size: float = 0.1
-    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        """
-        Split data into train, validation, and test sets
-        
-        Args:
-            df: Input DataFrame
-            target_col: Name of target column
-            test_size: Proportion of test data
-            val_size: Proportion of validation data
-            
-        Returns:
-            Tuple of (train_df, val_df, test_df)
-        """
-        from sklearn.model_selection import train_test_split
-        
-        # First split: train+val and test
-        train_val_df, test_df = train_test_split(
-            df, 
-            test_size=test_size,
-            stratify=df[target_col],
-            random_state=42
-        )
-        
-        # Second split: train and validation
-        val_ratio = val_size / (1 - test_size)
-        train_df, val_df = train_test_split(
-            train_val_df,
-            test_size=val_ratio,
-            stratify=train_val_df[target_col],
-            random_state=42
-        )
-        
-        logger.info(f"Split data: train={len(train_df)}, val={len(val_df)}, test={len(test_df)}")
-        
-        return train_df, val_df, test_df
+        path = writable_path("data/processed") / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(path, index=False)
+        logger.info(f"Saved {path}")
